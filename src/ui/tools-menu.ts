@@ -4,6 +4,7 @@ import { ContactsApi } from '../api/contacts';
 import { DuplicateNameFixer, DuplicateNameIssue } from '../tools/duplicate-name-fixer';
 import { PhoneNormalizationTool } from '../tools/phone-normalization-tool';
 import { CompanyNameCleaningTool } from '../tools/company-name-cleaning-tool';
+import { EmailValidationTool } from '../tools/email-validation-tool';
 import { toolRegistry } from '../utils/tool-registry';
 import { SuggestionManager } from '../utils/suggestion-manager';
 import { SuggestionViewer } from './suggestion-viewer';
@@ -190,9 +191,25 @@ Examples:
 
       `{bold}{yellow-fg}Fix Email Formats{/yellow-fg}{/bold}
 
-{red-fg}Coming Soon{/red-fg}
+This tool validates email addresses and detects common typos:
 
-This tool will identify and fix common email formatting issues.`,
+{bold}Validation:{/bold}
+- Checks RFC 5322 compliance
+- Identifies syntax errors
+- Flags clearly invalid emails
+
+{bold}Typo Detection:{/bold}
+- "user@gmial.com" → "user@gmail.com"
+- "user@hotmial.com" → "user@hotmail.com"
+- "user@yahooo.com" → "user@yahoo.com"
+
+The tool will:
+1. Scan all email addresses in contacts
+2. Validate format and detect common domain typos
+3. Suggest corrections where applicable
+4. Flag invalid emails for manual review
+
+{green-fg}Press Enter to run this tool{/green-fg}`,
 
       `{bold}{yellow-fg}Clean Company Names{/yellow-fg}{/bold}
 
@@ -244,6 +261,9 @@ ${this.getRegisteredToolsList()}
         break;
       case 1:
         await this.runPhoneNormalizationTool();
+        break;
+      case 2:
+        await this.runEmailValidationTool();
         break;
       case 3:
         await this.runCompanyNameCleaningTool();
@@ -485,6 +505,13 @@ ${this.getRegisteredToolsList()}
       priority: 8,
     });
 
+    const emailValidationTool = new EmailValidationTool();
+    toolRegistry.registerTool(emailValidationTool, {
+      enabled: true,
+      dependencies: [],
+      priority: 7,
+    });
+
     logger.info('Registered tools with tool registry');
   }
 
@@ -617,6 +644,68 @@ ${this.getRegisteredToolsList()}
       }
     } catch (error) {
       logger.error('Error running company name cleaning tool:', error);
+      this.showMessage(
+        error instanceof Error ? error.message : 'An error occurred while running the tool',
+        'error'
+      );
+    }
+  }
+
+  private async runEmailValidationTool(): Promise<void> {
+    try {
+      this.showMessage('Validating email addresses...', 'info');
+
+      const emailValidationTool = toolRegistry.getTool('Email Validation');
+      if (!emailValidationTool) {
+        this.showMessage('Email validation tool not found in registry', 'error');
+        return;
+      }
+
+      // Analyze all contacts
+      const result = await emailValidationTool.batchAnalyze(this.contacts);
+
+      if (result.totalSuggestions === 0) {
+        this.showMessage('Great! All email addresses are valid.', 'success');
+        return;
+      }
+
+      // Process suggestions for each contact
+      let totalFixed = 0;
+      for (const contactResult of result.results) {
+        if (contactResult.suggestions.length === 0) continue;
+
+        const contact = this.contacts.find(c => c.contactId === contactResult.contactId);
+        if (!contact) continue;
+
+        // Create suggestion batch
+        const batchId = await this.suggestionManager.createBatch(
+          'Email Validation',
+          contact.contactId,
+          contactResult.suggestions,
+          contact
+        );
+
+        // Show suggestion viewer
+        await new Promise<void>((resolve) => {
+          this.suggestionViewer.show(batchId, (completedBatchId, summary) => {
+            logger.info(`Completed batch ${completedBatchId}: ${summary?.successRate}% success rate`);
+            totalFixed += summary?.approved || 0;
+            resolve();
+          });
+        });
+      }
+
+      // Show final summary
+      const message = `Email Validation Complete!\n\nProcessed: ${result.processedContacts} contacts\nIssues found: ${result.totalSuggestions}\nFixed: ${totalFixed} emails`;
+      this.showMessage(message, 'success');
+
+      // Refresh contacts if changes were made
+      if (totalFixed > 0) {
+        this.showMessage('Refreshing contact list...', 'info');
+        this.onContactsUpdated(this.contacts);
+      }
+    } catch (error) {
+      logger.error('Error running email validation tool:', error);
       this.showMessage(
         error instanceof Error ? error.message : 'An error occurred while running the tool',
         'error'
