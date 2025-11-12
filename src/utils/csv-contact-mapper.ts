@@ -45,7 +45,7 @@ export class CsvContactMapper {
   private mapping: ColumnMapping;
 
   constructor(mapping?: ColumnMapping) {
-    this.mapping = mapping || this.detectMapping([]);
+    this.mapping = mapping || {};
   }
 
   /**

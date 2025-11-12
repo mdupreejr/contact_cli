@@ -168,9 +168,9 @@ export class CsvImportTool {
     // Email domain blocking
     const emails = contact.contactData?.emails || [];
     for (const email of emails) {
-      const domain = email.value.split('@')[1];
-      if (domain) {
-        keys.push(`email:${domain.toLowerCase()}`);
+      const parts = email.value.split('@');
+      if (parts.length === 2 && parts[1]) {
+        keys.push(`email:${parts[1].toLowerCase()}`);
       }
     }
 
@@ -232,7 +232,8 @@ export class CsvImportTool {
           existingContact,
           similarityScore: score,
           matchDetails,
-          suggestedAction: score >= 0.85 ? 'merge' : score >= 0.7 ? 'merge' : 'new',
+          // >= 0.85: high confidence merge, >= 0.7: user should review, < 0.7: new contact
+          suggestedAction: score >= 0.85 ? 'merge' : score >= 0.7 ? 'skip' : 'new',
           mergedContact: this.createMergedContact(csvContact, existingContact),
         };
       }
@@ -285,8 +286,10 @@ export class CsvImportTool {
       totalWeight += 0.15;
     }
 
-    // Return normalized score (don't divide by totalWeight - weights already sum correctly)
-    return totalWeight > 0 ? score : 0;
+    // Return normalized score (divide by totalWeight to account for missing fields)
+    // Example: If only name is compared (weight 0.35) with 0.9 similarity,
+    // score = 0.315, totalWeight = 0.35, result = 0.9 (correctly normalized)
+    return totalWeight > 0 ? score / totalWeight : 0;
   }
 
   /**
@@ -362,7 +365,7 @@ export class CsvImportTool {
       );
 
       const newOrgs = csvContact.contactData.organizations.filter(org =>
-        !org.name || !existingOrgNames.has(org.name.toLowerCase().trim())
+        org.name && !existingOrgNames.has(org.name.toLowerCase().trim())
       );
 
       merged.contactData.organizations = [...existingOrgs, ...newOrgs];
