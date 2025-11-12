@@ -8,7 +8,10 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "ai:index": "ts-node src/ml/cli_index.ts",
+    "ai:search": "ts-node src/ml/cli_search.ts",
+    "ai:dedupe": "ts-node src/ml/cli_dedupe.ts"
   },
   "keywords": [
     "contacts",
@@ -19,8 +22,10 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "@huggingface/transformers": "^3.7.6",
     "another-name-parser": "^0.1.0",
     "axios": "^1.6.0",
+    "better-sqlite3": "^12.4.1",
     "blessed": "^0.1.81",
     "clean-text": "^0.0.1",
     "cleanco": "^1.0.2",
@@ -29,11 +34,13 @@
     "dotenv": "^16.3.1",
     "email-validator": "^2.0.4",
     "ftfy": "^1.0.1",
+    "jaro-winkler": "^0.2.8",
     "keytar": "^7.9.0",
     "libphonenumber-js": "^1.12.26",
     "name-parser": "^0.0.1",
     "open": "^9.1.0",
-    "parse-full-name": "^1.2.6"
+    "parse-full-name": "^1.2.6",
+    "sqlite-vec": "^0.1.7-alpha.2"
   },
   "devDependencies": {
     "@types/blessed": "^0.1.21",
