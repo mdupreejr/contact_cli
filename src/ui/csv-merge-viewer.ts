@@ -263,7 +263,7 @@ export class CsvMergeViewer {
     // Update header
     if (this.headerBox) {
       this.headerBox.setContent(
-        `CSV Import - Match Review (${this.currentIndex + 1}/${this.matches.length})`
+        `CSV Import - STAGE 1: Review Matches (${this.currentIndex + 1}/${this.matches.length})`
       );
     }
 
@@ -313,7 +313,8 @@ export class CsvMergeViewer {
     if (this.statusBar) {
       const progress = `Match ${this.currentIndex + 1}/${this.matches.length} | Decisions: ${this.decisions.length}`;
       const navigation = `← → Navigate | Enter/M: Merge | S: Skip | N: New | Q: Cancel`;
-      this.statusBar.setContent(`${progress} | ${navigation}`);
+      const stage = `{yellow-fg}STAGE 1: Review Only - No API Changes Yet{/yellow-fg}`;
+      this.statusBar.setContent(`${stage} | ${progress} | ${navigation}`);
     }
 
     this.screen.render();

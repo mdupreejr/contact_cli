@@ -957,17 +957,49 @@ ${this.getRegisteredToolsList()}
         return;
       }
 
-      // Show merge viewer for matches
+      // Show merge viewer for matches (Stage 1: Review)
       this.csvMergeViewer.show(importResult.matchedContacts, async (decisions: MergeDecision[]) => {
         if (decisions.length === 0) {
           this.showMessage('CSV import cancelled', 'info');
           return;
         }
 
+        // Stage 2: Show confirmation dialog with summary before syncing
+        const mergeCount = decisions.filter(d => d.action === 'merge').length;
+        const newFromMatchCount = decisions.filter(d => d.action === 'new').length;
+        const skipCount = decisions.filter(d => d.action === 'skip').length;
+        const totalNewContacts = importResult.newContacts.length + newFromMatchCount;
+
+        const confirmMessage = [
+          'Ready to sync changes to API?',
+          '',
+          'Summary of changes:',
+          `  • ${mergeCount} contacts will be merged (updated)`,
+          `  • ${totalNewContacts} new contacts will be created`,
+          `  • ${skipCount} contacts will be skipped`,
+          '',
+          'This will modify your contacts database.',
+          'Continue?'
+        ].join('\n');
+
+        const confirmed = await this.showConfirmDialog(
+          'Confirm CSV Import',
+          confirmMessage,
+          ['Yes, sync to API', 'Cancel']
+        );
+
+        if (confirmed !== 0) {
+          this.showMessage('CSV import cancelled - no changes made', 'info');
+          return;
+        }
+
+        // User confirmed - now sync to API
         try {
+          this.showMessage('Syncing changes to API...', 'info');
+
           // Process decisions
           let mergedCount = 0;
-          let newFromMatchCount = 0;
+          let actualNewFromMatchCount = 0;
           const failedMerges: Array<{ contactId: string; error: string }> = [];
 
           for (const decision of decisions) {
@@ -1024,7 +1056,7 @@ ${this.getRegisteredToolsList()}
               // Create as new contact
               const newContact = await this.contactsApi.createContact(decision.match.csvContact);
               this.contacts.push(newContact);
-              newFromMatchCount++;
+              actualNewFromMatchCount++;
               logger.info(`Created new contact from CSV match: ${newContact.contactId}`);
             }
             // If 'skip', just ignore this CSV contact
@@ -1038,7 +1070,7 @@ ${this.getRegisteredToolsList()}
             'CSV Import Complete!',
             '',
             `Merged: ${mergedCount} contacts`,
-            `New from matches: ${newFromMatchCount} contacts`,
+            `New from matches: ${actualNewFromMatchCount} contacts`,
             `New contacts: ${remainingNewCount} contacts`,
             `Skipped: ${decisions.filter(d => d.action === 'skip').length} contacts`,
           ];
