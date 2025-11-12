@@ -968,6 +968,7 @@ ${this.getRegisteredToolsList()}
           // Process decisions
           let mergedCount = 0;
           let newFromMatchCount = 0;
+          const failedMerges: Array<{ contactId: string; error: string }> = [];
 
           for (const decision of decisions) {
             if (decision.action === 'merge' && decision.match.mergedContact) {
@@ -988,8 +989,7 @@ ${this.getRegisteredToolsList()}
                 if (latestContact.etag !== decision.match.existingContact.etag) {
                   logger.warn(`Contact ${latestContact.contactId} was modified during import, re-merging...`);
 
-                  // Re-create merged contact with latest version
-                  const csvImportTool = new CsvImportTool();
+                  // Re-create merged contact with latest version (reuse existing tool instance)
                   const updatedMerge = csvImportTool.createMergedContact(
                     decision.match.csvContact,
                     latestContact
@@ -1013,8 +1013,12 @@ ${this.getRegisteredToolsList()}
                 mergedCount++;
                 logger.info(`Merged CSV contact into ${decision.match.existingContact.contactId}`);
               } catch (error) {
+                const errorMsg = error instanceof Error ? error.message : 'Unknown error';
                 logger.error(`Failed to merge contact ${decision.match.existingContact.contactId}:`, error);
-                // Continue with next contact instead of failing entire import
+                failedMerges.push({
+                  contactId: decision.match.existingContact.contactId,
+                  error: errorMsg
+                });
               }
             } else if (decision.action === 'new') {
               // Create as new contact
@@ -1030,14 +1034,25 @@ ${this.getRegisteredToolsList()}
           const remainingNewCount = await this.importNewContacts(importResult.newContacts);
 
           // Show summary
-          const message = [
+          const summaryLines = [
             'CSV Import Complete!',
             '',
             `Merged: ${mergedCount} contacts`,
             `New from matches: ${newFromMatchCount} contacts`,
             `New contacts: ${remainingNewCount} contacts`,
             `Skipped: ${decisions.filter(d => d.action === 'skip').length} contacts`,
-          ].join('\n');
+          ];
+
+          // Add failed merges to summary if any
+          if (failedMerges.length > 0) {
+            summaryLines.push('', `Failed: ${failedMerges.length} contacts`);
+            summaryLines.push('Failed contacts:');
+            failedMerges.forEach(f => {
+              summaryLines.push(`  - ${f.contactId}: ${f.error}`);
+            });
+          }
+
+          const message = summaryLines.join('\n');
 
           this.showMessage(message, 'success');
 

@@ -73,7 +73,12 @@ export class CsvParser {
       return this.parseString(content);
     } catch (error) {
       logger.error('Failed to parse CSV file:', error);
-      throw new Error(`Failed to parse CSV file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Preserve original error with enhanced message
+      if (error instanceof Error) {
+        error.message = `Failed to parse CSV file: ${error.message}`;
+        throw error;
+      }
+      throw new Error('Failed to parse CSV file: Unknown error');
     }
   }
 
@@ -126,7 +131,8 @@ export class CsvParser {
     // Remove leading characters that could trigger formula execution
     const dangerousChars = ['=', '+', '-', '@', '\t', '\r'];
     if (dangerousChars.includes(value[0])) {
-      logger.warn(`Sanitizing potentially dangerous CSV cell value: ${value.substring(0, 50)}...`);
+      const preview = value.substring(0, 50);
+      logger.warn(`Sanitizing potentially dangerous CSV cell value: ${preview}${value.length > 50 ? '...' : ''}`);
       return `'${value}`; // Prefix with single quote to force text interpretation
     }
 
