@@ -134,7 +134,7 @@ export class Screen {
       left: 0,
       width: '100%',
       height: 3,
-      content: ' {cyan-fg}↑↓{/cyan-fg}: Navigate | {cyan-fg}Enter{/cyan-fg}: Select | {cyan-fg}/{/cyan-fg}: Search | {cyan-fg}t{/cyan-fg}: Tools | {cyan-fg}s{/cyan-fg}: Stats | {cyan-fg}l{/cyan-fg}: Logs | {cyan-fg}r{/cyan-fg}: Refresh | {cyan-fg}q{/cyan-fg}: Quit',
+      content: ' {cyan-fg}↑↓{/cyan-fg}: Navigate/View | {cyan-fg}/{/cyan-fg}: Search | {cyan-fg}t{/cyan-fg}: Tools | {cyan-fg}s{/cyan-fg}: Stats | {cyan-fg}l{/cyan-fg}: Logs | {cyan-fg}r{/cyan-fg}: Refresh | {cyan-fg}q{/cyan-fg}: Quit',
       style: {
         fg: 'white',
         bg: 'black',
@@ -172,6 +172,14 @@ export class Screen {
   private setupKeyHandling(): void {
     this.contactList.on('select', () => {
       this.showContactDetail();
+    });
+
+    // Auto-load contact details when navigating with arrow keys
+    this.contactList.key(['up', 'down', 'k', 'j'], () => {
+      // Small delay to let the list selection update
+      setImmediate(() => {
+        this.showContactDetail();
+      });
     });
 
     this.screen.key(['escape', 'q', 'C-c'], () => {
