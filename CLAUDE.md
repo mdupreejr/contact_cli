@@ -133,11 +133,7 @@ import { MyNewTool } from '../tools/my-new-tool';
 
 // In constructor:
 const myNewTool = new MyNewTool();
-toolRegistry.registerTool(myNewTool, {
-  enabled: true,
-  priority: 10, // Higher runs first
-  dependencies: [], // Array of tool names if dependent on others
-});
+toolRegistry.registerTool(myNewTool, true, [], 10);
 ```
 
 3. **Add menu option** in `createToolsMenu()` method of ToolsMenu class
