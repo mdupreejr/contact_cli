@@ -133,6 +133,12 @@ import { MyNewTool } from '../tools/my-new-tool';
 
 // In constructor:
 const myNewTool = new MyNewTool();
+toolRegistry.registerTool(myNewTool, true, [], 10);
+```
+
+3. **Add menu option to the UI**:  
+   The `ToolsMenu` class does not have a `createToolsMenu()` method.  
+   To add your tool to the menu, update the hardcoded tools list in the `createToolsUI()` method of the ToolsMenu class (see line 43 of `tools-menu.ts`).
 toolRegistry.registerTool(myNewTool, {
   enabled: true,
   priority: 10, // Higher runs first
