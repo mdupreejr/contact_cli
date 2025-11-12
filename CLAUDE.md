@@ -136,7 +136,9 @@ const myNewTool = new MyNewTool();
 toolRegistry.registerTool(myNewTool, true, [], 10);
 ```
 
-3. **Add menu option** in `createToolsMenu()` method of ToolsMenu class
+3. **Add menu option to the UI**:  
+   The `ToolsMenu` class does not have a `createToolsMenu()` method.  
+   To add your tool to the menu, update the hardcoded tools list in the `createToolsUI()` method of the ToolsMenu class (see line 43 of `tools-menu.ts`).
 
 ## Configuration
 
