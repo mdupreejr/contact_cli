@@ -10,6 +10,8 @@ import { SmartDedupeTool } from '../tools/smart-dedupe-tool';
 import { toolRegistry } from '../utils/tool-registry';
 import { SuggestionManager } from '../utils/suggestion-manager';
 import { SuggestionViewer } from './suggestion-viewer';
+import { ProgressTracker } from '../utils/progress-tracker';
+import { ProgressIndicator } from './progress-indicator';
 import { logger } from '../utils/logger';
 
 export class ToolsMenu {
@@ -23,9 +25,10 @@ export class ToolsMenu {
   private onContactsUpdated: (contacts: Contact[]) => void;
   private suggestionManager: SuggestionManager;
   private suggestionViewer: SuggestionViewer;
+  private progressIndicator: ProgressIndicator;
 
   constructor(
-    screen: blessed.Widgets.Screen, 
+    screen: blessed.Widgets.Screen,
     contactsApi: ContactsApi,
     onContactsUpdated: (contacts: Contact[]) => void
   ) {
@@ -33,14 +36,17 @@ export class ToolsMenu {
     this.contactsApi = contactsApi;
     this.contacts = [];
     this.onContactsUpdated = onContactsUpdated;
-    
+
     // Initialize suggestion system
     this.suggestionManager = new SuggestionManager(contactsApi);
     this.suggestionViewer = new SuggestionViewer(screen, this.suggestionManager);
-    
+
+    // Initialize progress indicator
+    this.progressIndicator = new ProgressIndicator(screen);
+
     // Register tools
     this.registerTools();
-    
+
     this.createToolsUI();
   }
 
@@ -572,16 +578,18 @@ ${this.getRegisteredToolsList()}
 
   private async runPhoneNormalizationTool(): Promise<void> {
     try {
-      this.showMessage('Analyzing contacts for phone number normalization...', 'info');
-
       const phoneNormalizationTool = toolRegistry.getTool('Phone Number Normalization');
       if (!phoneNormalizationTool) {
         this.showMessage('Phone normalization tool not found in registry', 'error');
         return;
       }
 
-      // Analyze all contacts
-      const result = await phoneNormalizationTool.batchAnalyze(this.contacts);
+      // Create progress tracker and show indicator
+      const tracker = new ProgressTracker(this.contacts.length, 'Analyzing contacts...');
+      this.progressIndicator.show(tracker, 'Phone Number Normalization');
+
+      // Analyze all contacts with progress tracking
+      const result = await phoneNormalizationTool.batchAnalyze(this.contacts, tracker);
       
       if (result.totalSuggestions === 0) {
         this.showMessage('Great! All phone numbers are already properly formatted.', 'success');
@@ -633,16 +641,18 @@ ${this.getRegisteredToolsList()}
 
   private async runCompanyNameCleaningTool(): Promise<void> {
     try {
-      this.showMessage('Analyzing company names for standardization...', 'info');
-
       const companyNameCleaningTool = toolRegistry.getTool('Company Name Cleaning');
       if (!companyNameCleaningTool) {
         this.showMessage('Company name cleaning tool not found in registry', 'error');
         return;
       }
 
-      // Analyze all contacts
-      const result = await companyNameCleaningTool.batchAnalyze(this.contacts);
+      // Create progress tracker and show indicator
+      const tracker = new ProgressTracker(this.contacts.length, 'Analyzing contacts...');
+      this.progressIndicator.show(tracker, 'Company Name Cleaning');
+
+      // Analyze all contacts with progress tracking
+      const result = await companyNameCleaningTool.batchAnalyze(this.contacts, tracker);
 
       if (result.totalSuggestions === 0) {
         this.showMessage('Great! All company names are already properly formatted.', 'success');
@@ -695,7 +705,6 @@ ${this.getRegisteredToolsList()}
 
   private async runEmailValidationTool(): Promise<void> {
     try {
-      this.showMessage('Analyzing email addresses for validation...', 'info');
 
       const emailValidationTool = toolRegistry.getTool('Email Validation');
       if (!emailValidationTool) {
@@ -703,8 +712,12 @@ ${this.getRegisteredToolsList()}
         return;
       }
 
-      // Analyze all contacts
-      const result = await emailValidationTool.batchAnalyze(this.contacts);
+      // Create progress tracker and show indicator
+      const tracker = new ProgressTracker(this.contacts.length, 'Analyzing contacts...');
+      this.progressIndicator.show(tracker, 'Email Validation');
+
+      // Analyze all contacts with progress tracking
+      const result = await emailValidationTool.batchAnalyze(this.contacts, tracker);
 
       if (result.totalSuggestions === 0) {
         this.showMessage('Great! All email addresses are valid.', 'success');

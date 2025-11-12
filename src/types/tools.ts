@@ -1,4 +1,5 @@
 import { Contact } from './contactsplus';
+import { ProgressTracker } from '../utils/progress-tracker';
 
 export interface ToolSuggestion {
   id: string;
@@ -98,7 +99,7 @@ export abstract class BaseTool {
   /**
    * Process multiple contacts and return suggestions for all
    */
-  async batchAnalyze(contacts: Contact[]): Promise<BatchToolResult> {
+  async batchAnalyze(contacts: Contact[], progressTracker?: ProgressTracker): Promise<BatchToolResult> {
     const startTime = Date.now();
     const results: ToolResult[] = [];
     const errors: string[] = [];
@@ -116,6 +117,14 @@ export abstract class BaseTool {
         });
         totalSuggestions += suggestions.length;
         processedContacts++;
+
+        // Update progress if tracker provided
+        if (progressTracker) {
+          const contactName = contact.contactData?.name
+            ? `${contact.contactData.name.givenName || ''} ${contact.contactData.name.familyName || ''}`.trim()
+            : contact.contactId;
+          progressTracker.increment(1, `Processing: ${contactName}`);
+        }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         errors.push(`Contact ${contact.contactId}: ${errorMessage}`);
@@ -125,10 +134,20 @@ export abstract class BaseTool {
           errors: [errorMessage],
           processed: false,
         });
+
+        // Still update progress on error
+        if (progressTracker) {
+          progressTracker.increment(1, `Error processing contact`);
+        }
       }
     }
 
     const executionTime = Date.now() - startTime;
+
+    // Mark as complete if tracker provided
+    if (progressTracker) {
+      progressTracker.complete(`Completed: ${processedContacts}/${contacts.length} contacts processed`);
+    }
 
     return {
       toolName: this.name,
