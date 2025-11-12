@@ -3,6 +3,7 @@ import { Contact } from '../types/contactsplus';
 import { ContactsApi } from '../api/contacts';
 import { ChangeLogger } from './change-logger';
 import { logger } from './logger';
+import { saveFeedback } from '../ml/feedback-store';
 
 export interface SuggestionBatch {
   id: string;
@@ -172,6 +173,31 @@ export class SuggestionManager {
 
       // Log the decision
       await this.changeLogger.logDecision(result.logEntryId, finalDecision, appliedValue);
+
+      // If this is a Smart Deduplication suggestion, save ML feedback
+      if (batch.toolName === 'Smart Deduplication' && suggestion.rationale?.additionalInfo) {
+        try {
+          const additionalInfo = suggestion.rationale.additionalInfo;
+          const features = additionalInfo.features as number[] | undefined;
+          const modelScore = typeof additionalInfo.similarityScore === 'number'
+            ? additionalInfo.similarityScore
+            : suggestion.confidence;
+
+          if (features && Array.isArray(features) && features.length === 7) {
+            saveFeedback({
+              contactAId: suggestion.contactId,
+              contactBId: additionalInfo.matchedContact?.id || '',
+              userDecision: finalDecision === 'approved' ? 'approved' : 'rejected',
+              features,
+              modelScore
+            });
+            logger.info(`Saved ML feedback: ${finalDecision} (score: ${modelScore.toFixed(3)})`);
+          }
+        } catch (error) {
+          logger.error('Failed to save ML feedback:', error);
+          // Don't fail the whole operation if feedback saving fails
+        }
+      }
 
       // Apply the change if approved or modified
       if (finalDecision === 'approved' || finalDecision === 'modified') {

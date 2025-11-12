@@ -41,6 +41,7 @@ export function searchByEmbedding(emb: Float32Array, k = 20) {
   return d.prepare(`
     select contact_meta.id as id, contact_meta.text as text, distance
     from contact_vec join contact_meta on contact_vec.rowid = contact_meta.rowid
-    where emb match ? order by distance asc limit ?
+    where emb match ? and k = ?
+    order by distance asc
   `).all(emb, k) as { id: string; text: string; distance: number }[];
 }
