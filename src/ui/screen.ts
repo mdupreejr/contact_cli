@@ -2,6 +2,9 @@ import * as blessed from 'blessed';
 import { Contact, AccountInfo } from '../types/contactsplus';
 import { ToolsMenu } from './tools-menu';
 import { ContactsApi } from '../api/contacts';
+import { LoggingScreen } from './logging-screen';
+import { StatsScreen } from './stats-screen';
+import { StatsManager } from '../utils/stats-manager';
 
 export class Screen {
   private screen: blessed.Widgets.Screen;
@@ -15,12 +18,18 @@ export class Screen {
   private filteredContacts: Contact[] = [];
   private selectedContactIndex = 0;
   private toolsMenu: ToolsMenu;
+  private loggingScreen: LoggingScreen;
+  private statsScreen: StatsScreen;
+  private statsManager: StatsManager;
 
   constructor(contactsApi: ContactsApi) {
     this.screen = blessed.screen({
       smartCSR: true,
       title: 'ContactsPlus CLI',
     });
+
+    // Initialize stats manager
+    this.statsManager = new StatsManager();
 
     this.createHeader();
     this.createContactList();
@@ -32,6 +41,10 @@ export class Screen {
     this.toolsMenu = new ToolsMenu(this.screen, contactsApi, (updatedContacts) => {
       this.handleContactsUpdated(updatedContacts);
     });
+    
+    // Initialize logging and stats screens
+    this.loggingScreen = new LoggingScreen(this.screen);
+    this.statsScreen = new StatsScreen(this.screen, this.statsManager);
     
     this.setupKeyHandling();
   }
@@ -121,7 +134,7 @@ export class Screen {
       left: 0,
       width: '100%',
       height: 3,
-      content: ' {cyan-fg}↑↓{/cyan-fg}: Navigate | {cyan-fg}Enter{/cyan-fg}: Select | {cyan-fg}/{/cyan-fg}: Search | {cyan-fg}t{/cyan-fg}: Tools | {cyan-fg}r{/cyan-fg}: Refresh | {cyan-fg}q{/cyan-fg}: Quit',
+      content: ' {cyan-fg}↑↓{/cyan-fg}: Navigate | {cyan-fg}Enter{/cyan-fg}: Select | {cyan-fg}/{/cyan-fg}: Search | {cyan-fg}t{/cyan-fg}: Tools | {cyan-fg}s{/cyan-fg}: Stats | {cyan-fg}l{/cyan-fg}: Logs | {cyan-fg}r{/cyan-fg}: Refresh | {cyan-fg}q{/cyan-fg}: Quit',
       style: {
         fg: 'white',
         bg: 'black',
@@ -164,6 +177,10 @@ export class Screen {
     this.screen.key(['escape', 'q', 'C-c'], () => {
       if (this.toolsMenu.isShowing()) {
         this.toolsMenu.hide();
+      } else if (this.loggingScreen.isShowing()) {
+        this.loggingScreen.hide();
+      } else if (this.statsScreen.isShowing()) {
+        this.statsScreen.hide();
       } else if (this.isSearchMode) {
         this.exitSearchMode();
       } else {
@@ -172,25 +189,39 @@ export class Screen {
     });
 
     this.screen.key(['/'], () => {
-      if (!this.toolsMenu.isShowing()) {
+      if (!this.toolsMenu.isShowing() && !this.loggingScreen.isShowing() && !this.statsScreen.isShowing()) {
         this.enterSearchMode();
       }
     });
 
     this.screen.key(['t'], () => {
-      if (!this.isSearchMode) {
+      if (!this.isSearchMode && !this.loggingScreen.isShowing() && !this.statsScreen.isShowing()) {
         this.showTools();
       }
     });
 
+    this.screen.key(['s'], () => {
+      if (!this.isSearchMode && !this.toolsMenu.isShowing() && !this.loggingScreen.isShowing()) {
+        this.showStats();
+      }
+    });
+
+    this.screen.key(['l'], () => {
+      if (!this.isSearchMode && !this.toolsMenu.isShowing() && !this.statsScreen.isShowing()) {
+        this.showLogs();
+      }
+    });
+
     this.screen.key(['r'], () => {
-      if (!this.toolsMenu.isShowing() && !this.isSearchMode) {
+      if (!this.toolsMenu.isShowing() && !this.isSearchMode && !this.loggingScreen.isShowing() && !this.statsScreen.isShowing()) {
+        this.statsManager.recordRefresh();
         this.emit('refresh');
       }
     });
 
     this.screen.key(['enter'], () => {
-      if (!this.isSearchMode && !this.toolsMenu.isShowing()) {
+      if (!this.isSearchMode && !this.toolsMenu.isShowing() && !this.loggingScreen.isShowing() && !this.statsScreen.isShowing()) {
+        this.statsManager.recordContactView();
         this.showContactDetail();
       }
     });
@@ -221,9 +252,12 @@ export class Screen {
   }
 
   private performSearch(query: string): void {
+    this.statsManager.recordSearch();
+    
     if (!query.trim()) {
       this.filteredContacts = [...this.contacts];
     } else {
+      const startTime = Date.now();
       const lowerQuery = query.toLowerCase();
       this.filteredContacts = this.contacts.filter(contact => {
         const name = this.getContactDisplayName(contact).toLowerCase();
@@ -234,6 +268,9 @@ export class Screen {
                email.includes(lowerQuery) || 
                company.includes(lowerQuery);
       });
+      
+      const searchTime = Date.now() - startTime;
+      this.statsManager.recordSearchTime(searchTime);
     }
     this.updateContactList();
   }
@@ -455,6 +492,7 @@ export class Screen {
   setContacts(contacts: Contact[]): void {
     this.contacts = contacts;
     this.filteredContacts = [...contacts];
+    this.statsManager.setContacts(contacts);
     this.updateContactList();
   }
 
@@ -524,7 +562,16 @@ export class Screen {
   }
 
   private showTools(): void {
+    this.statsManager.recordToolRun();
     this.toolsMenu.show(this.contacts);
+  }
+
+  private showStats(): void {
+    this.statsScreen.show();
+  }
+
+  private showLogs(): void {
+    this.loggingScreen.show();
   }
 
   private handleContactsUpdated(updatedContacts: Contact[]): void {
@@ -532,6 +579,15 @@ export class Screen {
     this.filteredContacts = [...updatedContacts];
     this.updateContactList();
     this.emit('contactsUpdated', updatedContacts);
+  }
+
+  // Methods for stats tracking
+  recordApiCall(success: boolean): void {
+    this.statsManager.recordApiCall(success);
+  }
+
+  recordLoadTime(timeMs: number): void {
+    this.statsManager.recordLoadTime(timeMs);
   }
 
   destroy(): void {

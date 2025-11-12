@@ -13,6 +13,10 @@ A command-line interface for managing your ContactsPlus.com contacts with an int
 - 💾 Secure credential storage using keytar
 - 🔧 Built-in contact cleaning tools
 - ✏️ Contact editing and data fixing capabilities
+- 📊 **Comprehensive statistics and analytics dashboard**
+- 📝 **Real-time logging with filtering and export capabilities**
+- 📈 **Data quality metrics and recommendations**
+- 🛠️ **Advanced phone number normalization with libphonenumber**
 
 ## Installation
 
@@ -39,7 +43,25 @@ npm install -g .
 
 ## Configuration
 
-The application uses environment variables stored in `.env` file. The required API credentials are already configured.
+The application uses environment variables for configuration. Follow these steps:
+
+1. **Copy the example environment file:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Get your ContactsPlus API credentials:**
+   - Visit [ContactsPlus Developer Portal](https://developers.contactsplus.com)
+   - Create a new application or use existing credentials
+   - Copy your Client ID and Client Secret
+
+3. **Update `.env` with your credentials:**
+   ```env
+   CONTACTSPLUS_CLIENT_ID=your_actual_client_id
+   CONTACTSPLUS_CLIENT_SECRET=your_actual_client_secret
+   ```
+
+4. **Review other settings in `.env`** (defaults should work for most users)
 
 ## Usage
 
@@ -62,6 +84,8 @@ contactsplus
 - `Enter` - View contact details
 - `/` - Search contacts
 - `t` - Open tools menu
+- `s` - Open statistics screen
+- `l` - Open logging screen
 - `r` - Refresh data
 - `q` / `Esc` - Quit application
 
@@ -88,11 +112,63 @@ The tool will:
 3. Let you choose whether to apply each fix
 4. Update contacts directly in ContactsPlus
 
-#### 📞 Additional Tools (Coming Soon)
-- Normalize Phone Numbers
+#### 📞 Normalize Phone Numbers
+Intelligently normalizes phone numbers to international format using libphonenumber:
+- **US Numbers**: Adds +1 prefix for 10-digit numbers with valid area codes
+- **International**: Supports 200+ countries with automatic country detection
+- **Smart Detection**: Recognizes existing country codes and formats appropriately
+- **Examples**: `(212) 555-1234` → `+1 212 555 1234`, `44 20 7946 0958` → `+44 20 7946 0958`
+
+#### 📧 Additional Tools (Coming Soon)
 - Fix Email Formats  
 - Clean Company Names
 - Find Missing Information
+
+### 📊 Statistics Dashboard
+
+Press `s` to access the comprehensive statistics dashboard with four main sections:
+
+#### 1. Contact Statistics
+- Total contacts overview (company vs personal)
+- Field coverage analysis with visual progress bars
+- Breakdown of contacts with emails, phones, addresses, etc.
+
+#### 2. Field Details
+- **Email Analytics**: Total, unique counts, domain distribution, type breakdown
+- **Phone Analytics**: Normalization status, country distribution, type analysis
+- **Organization Data**: Top companies, title distribution, unique counts
+- **Address Statistics**: Country and city distribution
+
+#### 3. Data Quality Metrics
+- **Quality Scores**: Completeness, duplicate detection, standardization scores
+- **Missing Fields Analysis**: Identification of contacts lacking essential information
+- **Data Issues Detection**: Duplicate names, invalid emails/phones, empty fields
+- **Actionable Recommendations**: Specific suggestions for data cleanup
+
+#### 4. Application Metrics
+- System information and performance data
+- API call statistics with success rates
+- User activity tracking
+- Memory usage and runtime metrics
+
+### 📝 Logging Screen
+
+Press `l` to access the real-time logging system:
+
+#### Features:
+- **Real-time Log Collection**: Captures all application logs as they happen
+- **Log Level Filtering**: Filter by ERROR, WARN, INFO, or DEBUG levels
+- **Search and Navigation**: Scroll through logs with keyboard controls
+- **Auto-scroll Toggle**: Enable/disable automatic scrolling for new entries
+- **Export Functionality**: Save logs to timestamped files for analysis
+- **Color-coded Entries**: Visual distinction between log levels
+
+#### Controls:
+- `1-4`: Filter by log level (ERROR, WARN, INFO, DEBUG)
+- `0`: Show all logs
+- `a`: Toggle auto-scroll
+- `c`: Clear current logs
+- `e`: Export logs to file
 
 ## Development
 

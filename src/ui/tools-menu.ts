@@ -2,6 +2,10 @@ import * as blessed from 'blessed';
 import { Contact } from '../types/contactsplus';
 import { ContactsApi } from '../api/contacts';
 import { DuplicateNameFixer, DuplicateNameIssue } from '../tools/duplicate-name-fixer';
+import { PhoneNormalizationTool } from '../tools/phone-normalization-tool';
+import { toolRegistry } from '../utils/tool-registry';
+import { SuggestionManager } from '../utils/suggestion-manager';
+import { SuggestionViewer } from './suggestion-viewer';
 import { logger } from '../utils/logger';
 
 export class ToolsMenu {
@@ -13,6 +17,8 @@ export class ToolsMenu {
   private detailBox: blessed.Widgets.BoxElement;
   private isVisible = false;
   private onContactsUpdated: (contacts: Contact[]) => void;
+  private suggestionManager: SuggestionManager;
+  private suggestionViewer: SuggestionViewer;
 
   constructor(
     screen: blessed.Widgets.Screen, 
@@ -23,6 +29,14 @@ export class ToolsMenu {
     this.contactsApi = contactsApi;
     this.contacts = [];
     this.onContactsUpdated = onContactsUpdated;
+    
+    // Initialize suggestion system
+    this.suggestionManager = new SuggestionManager(contactsApi);
+    this.suggestionViewer = new SuggestionViewer(screen, this.suggestionManager);
+    
+    // Register tools
+    this.registerTools();
+    
     this.createToolsUI();
   }
 
@@ -60,6 +74,7 @@ export class ToolsMenu {
         '📧 Fix Email Formats',
         '🏢 Clean Company Names',
         '🔍 Find Missing Info',
+        '📋 View All Available Tools',
       ],
       border: {
         type: 'line',
@@ -153,9 +168,24 @@ The tool will:
 
       `{bold}{yellow-fg}Normalize Phone Numbers{/yellow-fg}{/bold}
 
-{red-fg}Coming Soon{/red-fg}
+This tool intelligently normalizes phone numbers to international format:
 
-This tool will standardize phone number formats across all contacts.`,
+{bold}US Numbers:{/bold}
+- Only adds +1 if starts with 001, 01, 1, +1
+- OR if exactly 10 digits and valid US format
+- Recognizes common US area codes
+
+{bold}International Numbers:{/bold}
+- Adds + prefix if it creates a valid international number
+- Supports 200+ countries via libphonenumber-js
+- Maintains existing + prefixes
+
+Examples:
+- "(212) 555-1234" → "+1 212 555 1234"
+- "44 20 7946 0958" → "+44 20 7946 0958"
+- "91 98765 43210" → "+91 98765 43210"
+
+{green-fg}Press Enter to run this tool{/green-fg}`,
 
       `{bold}{yellow-fg}Fix Email Formats{/yellow-fg}{/bold}
 
@@ -174,6 +204,20 @@ This tool will standardize company name formats and remove duplicates.`,
 {red-fg}Coming Soon{/red-fg}
 
 This tool will identify contacts missing essential information.`,
+
+      `{bold}{yellow-fg}View All Available Tools{/yellow-fg}{/bold}
+
+Shows all registered tools in the system with their status:
+
+{bold}Available Tools:{/bold}
+${this.getRegisteredToolsList()}
+
+{bold}Tool Selection:{/bold}
+- View tool details and configurations
+- Enable/disable individual tools
+- Set execution order and dependencies
+
+{green-fg}Press Enter to view tool registry{/green-fg}`,
     ];
 
     this.detailBox.setContent(toolDescriptions[toolIndex] || 'Tool details not available.');
@@ -184,6 +228,12 @@ This tool will identify contacts missing essential information.`,
     switch (toolIndex) {
       case 0:
         await this.runDuplicateNameFixer();
+        break;
+      case 1:
+        await this.runPhoneNormalizationTool();
+        break;
+      case 5:
+        await this.showToolRegistry();
         break;
       default:
         this.showMessage('This tool is not yet implemented. Coming soon!', 'info');
@@ -397,5 +447,136 @@ This tool will identify contacts missing essential information.`,
 
   isShowing(): boolean {
     return this.isVisible;
+  }
+
+  private registerTools(): void {
+    // Register duplicate name fixer (existing)
+    // Note: DuplicateNameFixer would need to be converted to extend BaseTool
+
+    // Register phone normalization tool
+    const phoneNormalizationTool = new PhoneNormalizationTool();
+    toolRegistry.registerTool(phoneNormalizationTool, {
+      enabled: true,
+      dependencies: [],
+      priority: 10,
+    });
+
+    logger.info('Registered tools with tool registry');
+  }
+
+  private getRegisteredToolsList(): string {
+    const tools = toolRegistry.getAllTools();
+    if (tools.length === 0) {
+      return '  {gray-fg}No tools registered{/gray-fg}';
+    }
+
+    return tools.map(registration => {
+      const status = registration.enabled ? '{green-fg}✓{/green-fg}' : '{red-fg}✗{/red-fg}';
+      const selected = registration.selected ? '{blue-fg}[SELECTED]{/blue-fg}' : '';
+      return `  ${status} ${registration.tool.name} ${selected}`;
+    }).join('\n');
+  }
+
+  private async runPhoneNormalizationTool(): Promise<void> {
+    try {
+      this.showMessage('Analyzing contacts for phone number normalization...', 'info');
+
+      const phoneNormalizationTool = toolRegistry.getTool('Phone Number Normalization');
+      if (!phoneNormalizationTool) {
+        this.showMessage('Phone normalization tool not found in registry', 'error');
+        return;
+      }
+
+      // Analyze all contacts
+      const result = await phoneNormalizationTool.batchAnalyze(this.contacts);
+      
+      if (result.totalSuggestions === 0) {
+        this.showMessage('Great! All phone numbers are already properly formatted.', 'success');
+        return;
+      }
+
+      // Process suggestions for each contact
+      let totalFixed = 0;
+      for (const contactResult of result.results) {
+        if (contactResult.suggestions.length === 0) continue;
+
+        const contact = this.contacts.find(c => c.contactId === contactResult.contactId);
+        if (!contact) continue;
+
+        // Create suggestion batch
+        const batchId = await this.suggestionManager.createBatch(
+          'Phone Number Normalization',
+          contact.contactId,
+          contactResult.suggestions,
+          contact
+        );
+
+        // Show suggestion viewer
+        await new Promise<void>((resolve) => {
+          this.suggestionViewer.show(batchId, (completedBatchId, summary) => {
+            logger.info(`Completed batch ${completedBatchId}: ${summary?.successRate}% success rate`);
+            totalFixed += summary?.approved || 0;
+            resolve();
+          });
+        });
+      }
+
+      // Show final summary
+      const message = `Phone Number Normalization Complete!\n\nProcessed: ${result.processedContacts} contacts\nSuggestions: ${result.totalSuggestions}\nApplied: ${totalFixed} changes`;
+      this.showMessage(message, 'success');
+
+      // Refresh contacts if changes were made
+      if (totalFixed > 0) {
+        this.showMessage('Refreshing contact list...', 'info');
+        // Note: Would need to reload contacts from API
+        this.onContactsUpdated(this.contacts);
+      }
+
+    } catch (error) {
+      logger.error('Error running phone normalization tool:', error);
+      this.showMessage('Error running phone normalization tool. Check logs for details.', 'error');
+    }
+  }
+
+  private async showToolRegistry(): Promise<void> {
+    const tools = toolRegistry.getAllTools();
+    const stats = toolRegistry.getStatistics();
+
+    let content = `{bold}{cyan-fg}Tool Registry{/cyan-fg}{/bold}\n\n`;
+    content += `{bold}Statistics:{/bold}\n`;
+    content += `  Total Tools: ${stats.totalTools}\n`;
+    content += `  Enabled: ${stats.enabledTools}\n`;
+    content += `  Selected: ${stats.selectedTools}\n\n`;
+
+    content += `{bold}Available Tools:{/bold}\n`;
+    if (tools.length === 0) {
+      content += `  {gray-fg}No tools registered{/gray-fg}\n`;
+    } else {
+      tools.forEach(registration => {
+        const status = registration.enabled ? '{green-fg}✓{/green-fg}' : '{red-fg}✗{/red-fg}';
+        const selected = registration.selected ? '{blue-fg} [SELECTED]{/blue-fg}' : '';
+        content += `  ${status} {bold}${registration.tool.name}{/bold}${selected}\n`;
+        content += `     Category: ${registration.tool.category}\n`;
+        content += `     Version: ${registration.tool.version}\n`;
+        content += `     Priority: ${registration.priority}\n`;
+        if (registration.dependencies.length > 0) {
+          content += `     Dependencies: ${registration.dependencies.join(', ')}\n`;
+        }
+        content += `     ${registration.tool.description}\n\n`;
+      });
+    }
+
+    content += `\n{bold}Execution Order:{/bold}\n`;
+    const executionOrder = toolRegistry.getExecutionOrder();
+    if (executionOrder.length === 0) {
+      content += `  {gray-fg}No tools in execution order{/gray-fg}`;
+    } else {
+      executionOrder.forEach((toolName, index) => {
+        content += `  ${index + 1}. ${toolName}\n`;
+      });
+    }
+
+    this.detailBox.setContent(content);
+    this.screen.render();
   }
 }

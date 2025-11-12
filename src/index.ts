@@ -87,11 +87,19 @@ class ContactsPlusApp {
   private async loadAccountInfo(): Promise<void> {
     try {
       this.screen.showLoading('Loading account information...');
+      const startTime = Date.now();
       this.accountInfo = await this.contactsApi.getAccount();
+      const loadTime = Date.now() - startTime;
+      
+      // Record successful API call and load time
+      this.screen.recordApiCall(true);
+      this.screen.recordLoadTime(loadTime);
+      
       this.screen.updateHeader(this.accountInfo);
       logger.info('Account information loaded');
     } catch (error) {
       logger.error('Failed to load account information:', error);
+      this.screen.recordApiCall(false);
       // Don't fail the entire app if account info fails
       this.screen.updateHeader();
     }
@@ -100,7 +108,13 @@ class ContactsPlusApp {
   private async loadContacts(): Promise<void> {
     try {
       this.screen.showLoading('Loading contacts...');
+      const startTime = Date.now();
       this.contacts = await this.contactsApi.getAllContacts();
+      const loadTime = Date.now() - startTime;
+      
+      // Record successful API call and load time
+      this.screen.recordApiCall(true);
+      this.screen.recordLoadTime(loadTime);
       
       this.screen.setContacts(this.contacts);
       this.screen.updateHeader(this.accountInfo, this.contacts.length);
@@ -108,6 +122,7 @@ class ContactsPlusApp {
       logger.info(`Loaded ${this.contacts.length} contacts`);
     } catch (error) {
       logger.error('Failed to load contacts:', error);
+      this.screen.recordApiCall(false);
       throw new Error('Failed to load contacts. Please check your authentication and try again.');
     }
   }
@@ -149,6 +164,8 @@ Keyboard shortcuts:
   Enter          View contact details
   /              Search contacts
   t              Open tools menu
+  s              Open statistics dashboard
+  l              Open logging screen
   r              Refresh data
   q, Esc         Quit application
 

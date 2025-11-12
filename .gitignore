@@ -1,7 +1,25 @@
-# Environment variables
+# Environment variables and secrets
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
+.env.test
+*.env
+
+# Sensitive configuration files
+config/secrets.json
+config/credentials.json
+secrets/
+credentials/
+
+# Authentication tokens and keys
+*.pem
+*.key
+*.p12
+*.pfx
+auth_tokens.json
+oauth_tokens.json
 
 # Node.js
 node_modules/
@@ -29,9 +47,13 @@ dist/
 ehthumbs.db
 Thumbs.db
 
-# Logs
+# Logs and exports
 logs/
 *.log
+contactsplus-logs-*.txt
+contactsplus-stats-*.json
+exports/
+backups/
 
 # Runtime data
 pids/
@@ -58,3 +80,28 @@ jspm_packages/
 
 # Yarn Integrity file
 .yarn-integrity
+
+# Application specific
+# User data and cache
+user_data/
+cache/
+temp/
+tmp/
+
+# Database files (if any)
+*.db
+*.sqlite
+*.sqlite3
+
+# Compiled binaries
+bin/
+build/
+
+# Test files
+test_data/
+fixtures/contacts.json
+
+# Application logs and exports
+application.log
+debug.log
+error.log
