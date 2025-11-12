@@ -3,6 +3,7 @@ import { Contact } from '../types/contactsplus';
 import { ContactsApi } from '../api/contacts';
 import { DuplicateNameFixer, DuplicateNameIssue } from '../tools/duplicate-name-fixer';
 import { PhoneNormalizationTool } from '../tools/phone-normalization-tool';
+import { CompanyNameCleaningTool } from '../tools/company-name-cleaning-tool';
 import { toolRegistry } from '../utils/tool-registry';
 import { SuggestionManager } from '../utils/suggestion-manager';
 import { SuggestionViewer } from './suggestion-viewer';
@@ -195,9 +196,21 @@ This tool will identify and fix common email formatting issues.`,
 
       `{bold}{yellow-fg}Clean Company Names{/yellow-fg}{/bold}
 
-{red-fg}Coming Soon{/red-fg}
+This tool standardizes company names by removing common suffixes:
 
-This tool will standardize company name formats and remove duplicates.`,
+{bold}Examples:{/bold}
+- "Acme Inc." → "Acme"
+- "Microsoft Corporation" → "Microsoft"
+- "Deutsche Bank GmbH" → "Deutsche Bank"
+- "Smith & Co Ltd" → "Smith"
+
+The tool will:
+1. Scan all companies in organization fields
+2. Identify and remove common suffixes (Inc, Corp, Ltd, GmbH, etc.)
+3. Preserve original capitalization style
+4. Let you review and apply each suggestion
+
+{green-fg}Press Enter to run this tool{/green-fg}`,
 
       `{bold}{yellow-fg}Find Missing Info{/yellow-fg}{/bold}
 
@@ -231,6 +244,9 @@ ${this.getRegisteredToolsList()}
         break;
       case 1:
         await this.runPhoneNormalizationTool();
+        break;
+      case 3:
+        await this.runCompanyNameCleaningTool();
         break;
       case 5:
         await this.showToolRegistry();
@@ -461,6 +477,14 @@ ${this.getRegisteredToolsList()}
       priority: 10,
     });
 
+    // Register company name cleaning tool
+    const companyNameCleaningTool = new CompanyNameCleaningTool();
+    toolRegistry.registerTool(companyNameCleaningTool, {
+      enabled: true,
+      dependencies: [],
+      priority: 8,
+    });
+
     logger.info('Registered tools with tool registry');
   }
 
@@ -535,6 +559,68 @@ ${this.getRegisteredToolsList()}
     } catch (error) {
       logger.error('Error running phone normalization tool:', error);
       this.showMessage('Error running phone normalization tool. Check logs for details.', 'error');
+    }
+  }
+
+  private async runCompanyNameCleaningTool(): Promise<void> {
+    try {
+      this.showMessage('Analyzing company names for standardization...', 'info');
+
+      const companyNameCleaningTool = toolRegistry.getTool('Company Name Cleaning');
+      if (!companyNameCleaningTool) {
+        this.showMessage('Company name cleaning tool not found in registry', 'error');
+        return;
+      }
+
+      // Analyze all contacts
+      const result = await companyNameCleaningTool.batchAnalyze(this.contacts);
+
+      if (result.totalSuggestions === 0) {
+        this.showMessage('Great! All company names are already properly formatted.', 'success');
+        return;
+      }
+
+      // Process suggestions for each contact
+      let totalFixed = 0;
+      for (const contactResult of result.results) {
+        if (contactResult.suggestions.length === 0) continue;
+
+        const contact = this.contacts.find(c => c.contactId === contactResult.contactId);
+        if (!contact) continue;
+
+        // Create suggestion batch
+        const batchId = await this.suggestionManager.createBatch(
+          'Company Name Cleaning',
+          contact.contactId,
+          contactResult.suggestions,
+          contact
+        );
+
+        // Show suggestion viewer
+        await new Promise<void>((resolve) => {
+          this.suggestionViewer.show(batchId, (completedBatchId, summary) => {
+            logger.info(`Completed batch ${completedBatchId}: ${summary?.successRate}% success rate`);
+            totalFixed += summary?.approved || 0;
+            resolve();
+          });
+        });
+      }
+
+      // Show final summary
+      const message = `Company Name Cleaning Complete!\n\nProcessed: ${result.processedContacts} contacts\nSuggestions: ${result.totalSuggestions}\nApplied: ${totalFixed} changes`;
+      this.showMessage(message, 'success');
+
+      // Refresh contacts if changes were made
+      if (totalFixed > 0) {
+        this.showMessage('Refreshing contact list...', 'info');
+        this.onContactsUpdated(this.contacts);
+      }
+    } catch (error) {
+      logger.error('Error running company name cleaning tool:', error);
+      this.showMessage(
+        error instanceof Error ? error.message : 'An error occurred while running the tool',
+        'error'
+      );
     }
   }
 
