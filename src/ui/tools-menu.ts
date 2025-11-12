@@ -4,6 +4,8 @@ import { ContactsApi } from '../api/contacts';
 import { DuplicateNameFixer, DuplicateNameIssue } from '../tools/duplicate-name-fixer';
 import { PhoneNormalizationTool } from '../tools/phone-normalization-tool';
 import { CompanyNameCleaningTool } from '../tools/company-name-cleaning-tool';
+import { SemanticSearchTool } from '../tools/semantic-search-tool';
+import { SmartDedupeTool } from '../tools/smart-dedupe-tool';
 import { toolRegistry } from '../utils/tool-registry';
 import { SuggestionManager } from '../utils/suggestion-manager';
 import { SuggestionViewer } from './suggestion-viewer';
@@ -75,6 +77,8 @@ export class ToolsMenu {
         '📧 Fix Email Formats',
         '🏢 Clean Company Names',
         '🔍 Find Missing Info',
+        '🤖 AI: Semantic Search',
+        '🧠 AI: Smart Deduplication',
         '📋 View All Available Tools',
       ],
       border: {
@@ -156,7 +160,7 @@ export class ToolsMenu {
 
 This tool scans through all your contacts and identifies names with duplicate words, such as:
 - "Ben Ben Ullright" → "Ben Ullright"
-- "John John Smith" → "John Smith" 
+- "John John Smith" → "John Smith"
 - "Mary Mary Jane Doe" → "Mary Jane Doe"
 
 The tool will:
@@ -218,6 +222,40 @@ The tool will:
 
 This tool will identify contacts missing essential information.`,
 
+      `{bold}{yellow-fg}AI: Semantic Search{/yellow-fg}{/bold}
+
+Uses machine learning embeddings to search contacts by meaning, not just keywords.
+
+{bold}How it works:{/bold}
+- Powered by Transformers.js (MiniLM-L6-v2 model)
+- Generates 384-dimensional vector embeddings
+- Finds contacts based on semantic similarity
+
+{bold}Examples:{/bold}
+- "software engineer in SF" finds developers in San Francisco
+- "doctors" finds people with medical titles
+- "worked at tech companies" finds tech employees
+
+{green-fg}Note: Requires initial indexing of contacts{/green-fg}`,
+
+      `{bold}{yellow-fg}AI: Smart Deduplication{/yellow-fg}{/bold}
+
+ML-powered duplicate detection using advanced similarity scoring.
+
+{bold}Features:{/bold}
+- Jaro-Winkler string similarity
+- Multi-field feature matching (name, email, phone, company, city)
+- Logistic regression scoring model
+- Blocking candidates to reduce comparisons
+
+{bold}Scoring criteria:{/bold}
+- Name similarity: 35%
+- Email match: 30%
+- Phone match: 20%
+- Company/city: 15%
+
+{green-fg}Press Enter to find potential duplicates{/green-fg}`,
+
       `{bold}{yellow-fg}View All Available Tools{/yellow-fg}{/bold}
 
 Shows all registered tools in the system with their status:
@@ -247,6 +285,12 @@ ${this.getRegisteredToolsList()}
         break;
       case 3:
         await this.runCompanyNameCleaningTool();
+        break;
+      case 6:
+        this.showMessage('Semantic search feature coming soon to UI!', 'info');
+        break;
+      case 7:
+        await this.runSmartDedupeTool();
         break;
       case 5:
         await this.showToolRegistry();
@@ -485,6 +529,20 @@ ${this.getRegisteredToolsList()}
       priority: 8,
     });
 
+    const semanticSearchTool = new SemanticSearchTool();
+    toolRegistry.registerTool(semanticSearchTool, {
+      enabled: true,
+      dependencies: [],
+      priority: 10,
+    });
+
+    const smartDedupeTool = new SmartDedupeTool();
+    toolRegistry.registerTool(smartDedupeTool, {
+      enabled: true,
+      dependencies: [],
+      priority: 11,
+    });
+
     logger.info('Registered tools with tool registry');
   }
 
@@ -617,6 +675,68 @@ ${this.getRegisteredToolsList()}
       }
     } catch (error) {
       logger.error('Error running company name cleaning tool:', error);
+      this.showMessage(
+        error instanceof Error ? error.message : 'An error occurred while running the tool',
+        'error'
+      );
+    }
+  }
+
+  private async runSmartDedupeTool(): Promise<void> {
+    try {
+      this.showMessage('Running ML-powered duplicate detection...', 'info');
+
+      const smartDedupeTool = toolRegistry.getTool('Smart Deduplication');
+      if (!smartDedupeTool) {
+        this.showMessage('Smart deduplication tool not found in registry', 'error');
+        return;
+      }
+
+      // Run batch analysis
+      const result = await smartDedupeTool.batchAnalyze(this.contacts);
+
+      if (result.totalSuggestions === 0) {
+        this.showMessage('Great! No duplicate contacts detected.', 'success');
+        return;
+      }
+
+      // Process suggestions for each contact pair
+      let totalFixed = 0;
+      for (const contactResult of result.results) {
+        if (contactResult.suggestions.length === 0) continue;
+
+        const contact = this.contacts.find(c => c.contactId === contactResult.contactId);
+        if (!contact) continue;
+
+        // Create suggestion batch
+        const batchId = await this.suggestionManager.createBatch(
+          'Smart Deduplication',
+          contact.contactId,
+          contactResult.suggestions,
+          contact
+        );
+
+        // Show suggestion viewer
+        await new Promise<void>((resolve) => {
+          this.suggestionViewer.show(batchId, (completedBatchId, summary) => {
+            logger.info(`Completed batch ${completedBatchId}: ${summary?.successRate}% success rate`);
+            totalFixed += summary?.approved || 0;
+            resolve();
+          });
+        });
+      }
+
+      // Show final summary
+      const message = `Smart Deduplication Complete!\n\nPotential duplicates found: ${result.totalSuggestions}\nMerges performed: ${totalFixed}`;
+      this.showMessage(message, 'success');
+
+      // Refresh contacts if changes were made
+      if (totalFixed > 0) {
+        this.showMessage('Refreshing contact list...', 'info');
+        this.onContactsUpdated(this.contacts);
+      }
+    } catch (error) {
+      logger.error('Error running smart deduplication tool:', error);
       this.showMessage(
         error instanceof Error ? error.message : 'An error occurred while running the tool',
         'error'
