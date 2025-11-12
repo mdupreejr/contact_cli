@@ -1,0 +1,86 @@
+[
+  {
+    "contactId": "test-001",
+    "contactData": {
+      "name": {
+        "givenName": "Alice",
+        "familyName": "Johnson"
+      },
+      "emails": [
+        {
+          "type": "work",
+          "value": "alice.johnson@techcorp.com"
+        }
+      ],
+      "phoneNumbers": [
+        {
+          "type": "mobile",
+          "value": "+1-555-0101"
+        }
+      ],
+      "organizations": [
+        {
+          "name": "Tech Corp Inc.",
+          "title": "Senior Engineer"
+        }
+      ]
+    },
+    "contactMetadata": {}
+  },
+  {
+    "contactId": "test-002",
+    "contactData": {
+      "name": {
+        "givenName": "Bob",
+        "familyName": "Smith"
+      },
+      "emails": [
+        {
+          "type": "personal",
+          "value": "bob.smith@gmial.com"
+        }
+      ],
+      "phoneNumbers": [
+        {
+          "type": "work",
+          "value": "5550102"
+        }
+      ],
+      "organizations": [
+        {
+          "name": "Startup LLC",
+          "title": "Product Manager"
+        }
+      ]
+    },
+    "contactMetadata": {}
+  },
+  {
+    "contactId": "test-003",
+    "contactData": {
+      "name": {
+        "givenName": "Alice",
+        "familyName": "Johnson"
+      },
+      "emails": [
+        {
+          "type": "work",
+          "value": "a.johnson@techcorp.com"
+        }
+      ],
+      "phoneNumbers": [
+        {
+          "type": "mobile",
+          "value": "+1-555-0101"
+        }
+      ],
+      "organizations": [
+        {
+          "name": "Tech Corp",
+          "title": "Senior Software Engineer"
+        }
+      ]
+    },
+    "contactMetadata": {}
+  }
+]

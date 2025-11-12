@@ -12,7 +12,8 @@
     "ai:index": "ts-node src/ml/cli_index.ts",
     "ai:search": "ts-node src/ml/cli_search.ts",
     "ai:dedupe": "ts-node src/ml/cli_dedupe.ts",
-    "ai:train": "ts-node src/ml/cli_train.ts"
+    "ai:train": "ts-node src/ml/cli_train.ts",
+    "generate-test-data": "node scripts/generate-test-data.js"
   },
   "keywords": [
     "contacts",
