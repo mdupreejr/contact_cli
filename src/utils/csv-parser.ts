@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import { logger } from './logger';
 
 /**
@@ -40,8 +41,35 @@ export class CsvParser {
    */
   async parseFile(filePath: string): Promise<CsvData> {
     try {
-      logger.info(`Parsing CSV file: ${filePath}`);
-      const content = fs.readFileSync(filePath, this.options.encoding);
+      // Validate file path
+      const absolutePath = path.resolve(filePath);
+
+      // Check file extension
+      if (!absolutePath.toLowerCase().endsWith('.csv')) {
+        throw new Error('Invalid file type: Only .csv files are allowed');
+      }
+
+      // Check file exists
+      if (!fs.existsSync(absolutePath)) {
+        throw new Error('File not found');
+      }
+
+      // Check it's a file, not a directory
+      const stats = fs.statSync(absolutePath);
+      if (!stats.isFile()) {
+        throw new Error('Path must point to a file, not a directory');
+      }
+
+      // Check file size (max 50MB)
+      const MAX_FILE_SIZE = 50 * 1024 * 1024;
+      if (stats.size > MAX_FILE_SIZE) {
+        throw new Error(`File too large: ${(stats.size / 1024 / 1024).toFixed(2)}MB (maximum ${MAX_FILE_SIZE / 1024 / 1024}MB)`);
+      }
+
+      logger.info(`Parsing CSV file: ${absolutePath} (${(stats.size / 1024).toFixed(2)}KB)`);
+
+      // Read file asynchronously
+      const content = await fs.promises.readFile(absolutePath, this.options.encoding);
       return this.parseString(content);
     } catch (error) {
       logger.error('Failed to parse CSV file:', error);
@@ -90,6 +118,22 @@ export class CsvParser {
   }
 
   /**
+   * Sanitize cell value to prevent CSV injection attacks
+   */
+  private sanitizeCell(value: string): string {
+    if (!value) return value;
+
+    // Remove leading characters that could trigger formula execution
+    const dangerousChars = ['=', '+', '-', '@', '\t', '\r'];
+    if (dangerousChars.includes(value[0])) {
+      logger.warn(`Sanitizing potentially dangerous CSV cell value: ${value.substring(0, 50)}...`);
+      return `'${value}`; // Prefix with single quote to force text interpretation
+    }
+
+    return value;
+  }
+
+  /**
    * Parse a single CSV line, handling quoted fields
    */
   private parseLine(line: string): string[] {
@@ -113,7 +157,7 @@ export class CsvParser {
         }
       } else if (char === this.options.delimiter && !insideQuotes) {
         // End of field
-        fields.push(currentField.trim());
+        fields.push(this.sanitizeCell(currentField.trim()));
         currentField = '';
       } else {
         currentField += char;
@@ -122,8 +166,8 @@ export class CsvParser {
       i++;
     }
 
-    // Add last field
-    fields.push(currentField.trim());
+    // Add last field with sanitization
+    fields.push(this.sanitizeCell(currentField.trim()));
 
     return fields;
   }

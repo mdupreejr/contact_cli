@@ -971,19 +971,51 @@ ${this.getRegisteredToolsList()}
 
           for (const decision of decisions) {
             if (decision.action === 'merge' && decision.match.mergedContact) {
-              // Apply merge
-              await this.contactsApi.updateContact(decision.match.mergedContact);
+              try {
+                // Refresh contact to get latest etag and detect conflicts
+                const latestContacts = await this.contactsApi.getContactsByIds([
+                  decision.match.existingContact.contactId
+                ]);
 
-              // Update local contacts array
-              const index = this.contacts.findIndex(
-                c => c.contactId === decision.match.existingContact.contactId
-              );
-              if (index !== -1) {
-                this.contacts[index] = decision.match.mergedContact;
+                if (latestContacts.length === 0) {
+                  logger.error(`Contact ${decision.match.existingContact.contactId} not found, skipping merge`);
+                  continue;
+                }
+
+                const latestContact = latestContacts[0];
+
+                // Check for etag conflict (contact was modified since match was made)
+                if (latestContact.etag !== decision.match.existingContact.etag) {
+                  logger.warn(`Contact ${latestContact.contactId} was modified during import, re-merging...`);
+
+                  // Re-create merged contact with latest version
+                  const csvImportTool = new CsvImportTool();
+                  const updatedMerge = csvImportTool.createMergedContact(
+                    decision.match.csvContact,
+                    latestContact
+                  );
+
+                  // Update the merge with latest etag
+                  decision.match.mergedContact = updatedMerge;
+                }
+
+                // Apply merge
+                const updatedContact = await this.contactsApi.updateContact(decision.match.mergedContact);
+
+                // Update local contacts array
+                const index = this.contacts.findIndex(
+                  c => c.contactId === decision.match.existingContact.contactId
+                );
+                if (index !== -1) {
+                  this.contacts[index] = updatedContact;
+                }
+
+                mergedCount++;
+                logger.info(`Merged CSV contact into ${decision.match.existingContact.contactId}`);
+              } catch (error) {
+                logger.error(`Failed to merge contact ${decision.match.existingContact.contactId}:`, error);
+                // Continue with next contact instead of failing entire import
               }
-
-              mergedCount++;
-              logger.info(`Merged CSV contact into ${decision.match.existingContact.contactId}`);
             } else if (decision.action === 'new') {
               // Create as new contact
               const newContact = await this.contactsApi.createContact(decision.match.csvContact);
