@@ -4,6 +4,8 @@ import { ContactsApi } from './api/contacts';
 import { Screen } from './ui/screen';
 import { logger, LogLevel } from './utils/logger';
 import { Contact, AccountInfo } from './types/contactsplus';
+import { closeDB } from './ml/vector-store';
+import { closeFeedbackDB } from './ml/feedback-store';
 
 class ContactsPlusApp {
   private contactsApi: ContactsApi;
@@ -139,6 +141,9 @@ class ContactsPlusApp {
     if (this.screen) {
       this.screen.destroy();
     }
+    // Close database connections
+    closeDB();
+    closeFeedbackDB();
   }
 }
 

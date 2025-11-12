@@ -40,16 +40,28 @@ export class ApiClient {
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
-        if (error.response?.status === 401) {
+        const config = error.config;
+
+        // Check if this request has already been retried (prevent infinite loop)
+        if (config._retry) {
+          logger.error('Token refresh already attempted, failing request');
+          return Promise.reject(error);
+        }
+
+        if (error.response?.status === 401 && !config._retry) {
+          config._retry = true; // Mark as retried
+
           logger.warn('Received 401, attempting to refresh tokens');
           try {
             // Try to refresh tokens and retry the request
             const tokens = await this.oauthManager.authenticate();
-            error.config.headers.Authorization = `Bearer ${tokens.access_token}`;
-            return this.client.request(error.config);
+            config.headers.Authorization = `Bearer ${tokens.access_token}`;
+            return this.client.request(config);
           } catch (refreshError) {
             logger.error('Failed to refresh tokens:', refreshError);
-            throw refreshError;
+            // Clear stored tokens to force re-auth on next attempt
+            await this.oauthManager.logout();
+            throw new Error('Authentication expired. Please restart the application.');
           }
         }
         return Promise.reject(error);

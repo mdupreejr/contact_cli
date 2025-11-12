@@ -45,3 +45,16 @@ export function searchByEmbedding(emb: Float32Array, k = 20) {
     order by distance asc
   `).all(emb, k) as { id: string; text: string; distance: number }[];
 }
+
+export function closeDB(): void {
+  if (db) {
+    try {
+      db.close();
+      console.log('[vector-store] Database connection closed');
+    } catch (error) {
+      console.error('[vector-store] Failed to close database:', error);
+    } finally {
+      db = null;
+    }
+  }
+}

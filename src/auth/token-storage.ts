@@ -35,8 +35,36 @@ export class TokenStorage {
         return null;
       }
 
-      const expiry = JSON.parse(expiryData);
-      
+      // Parse and validate expiry data
+      let expiry: any;
+      try {
+        expiry = JSON.parse(expiryData);
+      } catch (parseError) {
+        logger.error('Failed to parse token expiry data:', parseError);
+        // Clear corrupted data
+        await this.clearTokens();
+        return null;
+      }
+
+      // Validate expiry data structure
+      if (!expiry ||
+          typeof expiry.access_token_expiration !== 'number' ||
+          typeof expiry.refresh_token_expiration !== 'number' ||
+          typeof expiry.scope !== 'string') {
+        logger.error('Invalid token expiry data structure');
+        await this.clearTokens();
+        return null;
+      }
+
+      // Validate expiration values are reasonable
+      const now = Date.now();
+      if (expiry.access_token_expiration < now - (365 * 24 * 60 * 60 * 1000) || // Not more than 1 year in the past
+          expiry.access_token_expiration > now + (365 * 24 * 60 * 60 * 1000)) {  // Not more than 1 year in the future
+        logger.error('Invalid token expiration timestamp');
+        await this.clearTokens();
+        return null;
+      }
+
       return {
         access_token: accessToken,
         refresh_token: refreshToken,

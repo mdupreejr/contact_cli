@@ -2,6 +2,7 @@ import * as http from 'http';
 import { URL } from 'url';
 import axios from 'axios';
 import open from 'open';
+import * as crypto from 'crypto';
 import { getConfig, getOAuthPort } from '../utils/config';
 import { TokenStorage } from './token-storage';
 import { OAuthTokens } from '../types/contactsplus';
@@ -11,6 +12,8 @@ export class OAuthManager {
   private config = getConfig();
   private tokenStorage = new TokenStorage();
   private server?: http.Server;
+  private expectedState: string | null = null;
+  private refreshPromise: Promise<OAuthTokens> | null = null;
 
   async authenticate(): Promise<OAuthTokens> {
     // Check if we have valid tokens
@@ -24,14 +27,29 @@ export class OAuthManager {
 
     // Check if we need to refresh tokens
     if (await this.tokenStorage.needsRefresh()) {
+      // If refresh already in progress, wait for it (prevents race condition)
+      if (this.refreshPromise) {
+        logger.debug('Token refresh already in progress, waiting...');
+        return this.refreshPromise;
+      }
+
       const tokens = await this.tokenStorage.getTokens();
       if (tokens) {
         try {
-          const refreshedTokens = await this.refreshToken(tokens.refresh_token);
-          await this.tokenStorage.storeTokens(refreshedTokens);
-          logger.info('Tokens refreshed successfully');
-          return refreshedTokens;
+          // Create refresh promise to prevent concurrent refreshes
+          this.refreshPromise = this.refreshToken(tokens.refresh_token)
+            .then(async (refreshedTokens) => {
+              await this.tokenStorage.storeTokens(refreshedTokens);
+              logger.info('Tokens refreshed successfully');
+              return refreshedTokens;
+            })
+            .finally(() => {
+              this.refreshPromise = null;
+            });
+
+          return await this.refreshPromise;
         } catch (error) {
+          this.refreshPromise = null;
           logger.warn('Failed to refresh tokens, starting new auth flow');
         }
       }
@@ -44,42 +62,67 @@ export class OAuthManager {
   private async startOAuthFlow(): Promise<OAuthTokens> {
     return new Promise((resolve, reject) => {
       const port = getOAuthPort();
-      
+
+      // Clean up any existing server first
+      this.cleanup();
+
       // Create authorization URL
       const authUrl = this.buildAuthUrl();
-      
+
+      // Add timeout to prevent hanging forever
+      const timeout = setTimeout(() => {
+        logger.error('OAuth flow timed out after 5 minutes');
+        this.cleanup();
+        reject(new Error('OAuth flow timed out'));
+      }, 5 * 60 * 1000);
+
       // Start local server to receive callback
       this.server = http.createServer(async (req, res) => {
         try {
           const url = new URL(req.url!, `http://localhost:${port}`);
-          
+
           if (url.pathname === '/callback') {
             const code = url.searchParams.get('code');
             const error = url.searchParams.get('error');
-            
+            const returnedState = url.searchParams.get('state');
+
+            // Validate state parameter (CSRF protection)
+            if (!returnedState || returnedState !== this.expectedState) {
+              res.writeHead(400, { 'Content-Type': 'text/html' });
+              res.end('<h1>Invalid state parameter - possible CSRF attack</h1>');
+              clearTimeout(timeout);
+              this.cleanup();
+              this.expectedState = null;
+              reject(new Error('State validation failed'));
+              return;
+            }
+            this.expectedState = null; // Clear after use
+
             if (error) {
               res.writeHead(400, { 'Content-Type': 'text/html' });
               res.end(`<h1>Authorization Error</h1><p>${error}</p>`);
+              clearTimeout(timeout);
               this.cleanup();
               reject(new Error(`OAuth error: ${error}`));
               return;
             }
-            
+
             if (!code) {
               res.writeHead(400, { 'Content-Type': 'text/html' });
               res.end('<h1>Missing Authorization Code</h1>');
+              clearTimeout(timeout);
               this.cleanup();
               reject(new Error('Missing authorization code'));
               return;
             }
-            
+
             try {
               // Exchange code for tokens
               const tokens = await this.exchangeCodeForTokens(code);
-              
+
               // Store tokens
               await this.tokenStorage.storeTokens(tokens);
-              
+
               // Send success response
               res.writeHead(200, { 'Content-Type': 'text/html' });
               res.end(`
@@ -87,12 +130,15 @@ export class OAuthManager {
                 <p>You can now close this window and return to the CLI.</p>
                 <script>window.close();</script>
               `);
-              
-              this.cleanup();
+
+              clearTimeout(timeout);
+              // Give response time to be sent before closing
+              setTimeout(() => this.cleanup(), 500);
               resolve(tokens);
             } catch (error) {
               res.writeHead(500, { 'Content-Type': 'text/html' });
               res.end(`<h1>Authentication Error</h1><p>${error}</p>`);
+              clearTimeout(timeout);
               this.cleanup();
               reject(error);
             }
@@ -102,31 +148,38 @@ export class OAuthManager {
           }
         } catch (error) {
           logger.error('Server error:', error);
+          clearTimeout(timeout);
+          this.cleanup();
           reject(error);
         }
       });
-      
+
+      this.server.on('error', (error) => {
+        logger.error('Server error:', error);
+        clearTimeout(timeout);
+        this.cleanup();
+        reject(error);
+      });
+
       this.server.listen(port, () => {
         logger.info(`OAuth server started on http://localhost:${port}`);
         logger.info('Opening browser for authentication...');
         open(authUrl);
       });
-      
-      this.server.on('error', (error) => {
-        logger.error('Server error:', error);
-        this.cleanup();
-        reject(error);
-      });
     });
   }
 
   private buildAuthUrl(): string {
+    // Generate cryptographically secure random state
+    const state = crypto.randomBytes(32).toString('hex');
+    this.expectedState = state;
+
     const params = new URLSearchParams({
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
       scope: this.config.scopes,
       response_type: 'code',
-      state: Math.random().toString(36).substring(2, 15),
+      state: state,
     });
 
     return `${this.config.authBase}/oauth/authorize?${params.toString()}`;
@@ -193,7 +246,14 @@ export class OAuthManager {
 
   private cleanup(): void {
     if (this.server) {
-      this.server.close();
+      this.server.removeAllListeners(); // Prevent memory leaks
+      this.server.close((err) => {
+        if (err) {
+          logger.error('Error closing OAuth server:', err);
+        } else {
+          logger.debug('OAuth server closed');
+        }
+      });
       this.server = undefined;
     }
   }

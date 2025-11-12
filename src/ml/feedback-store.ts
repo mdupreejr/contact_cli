@@ -157,3 +157,16 @@ export function getFeedbackStats(): {
     accuracyAtThreshold
   };
 }
+
+export function closeFeedbackDB(): void {
+  if (db) {
+    try {
+      db.close();
+      console.log('[feedback-store] Database connection closed');
+    } catch (error) {
+      console.error('[feedback-store] Failed to close database:', error);
+    } finally {
+      db = null;
+    }
+  }
+}
