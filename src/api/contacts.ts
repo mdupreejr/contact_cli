@@ -150,6 +150,34 @@ export class ContactsApi {
     }
   }
 
+  async createContact(contact: Contact): Promise<Contact> {
+    if (READONLY_MODE) {
+      logger.warn('READONLY_MODE enabled - skipping API create');
+      // In readonly mode, just return the contact with a generated ID
+      return {
+        ...contact,
+        contactId: contact.contactId || `temp-${Date.now()}`,
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+      };
+    }
+
+    try {
+      logger.debug('Creating contact');
+      const response = await this.client.post<{ contact: Contact }>('/api/v1/contacts.create', {
+        contact: {
+          contactData: contact.contactData,
+          contactMetadata: contact.contactMetadata,
+        },
+      });
+      logger.info(`Contact created successfully: ${response.contact.contactId}`);
+      return response.contact;
+    } catch (error) {
+      logger.error('Failed to create contact:', error);
+      throw new Error('Failed to create contact');
+    }
+  }
+
   async logout(): Promise<void> {
     await this.client.logout();
   }

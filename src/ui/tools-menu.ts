@@ -12,6 +12,9 @@ import { SuggestionManager } from '../utils/suggestion-manager';
 import { SuggestionViewer } from './suggestion-viewer';
 import { ProgressTracker } from '../utils/progress-tracker';
 import { ProgressIndicator } from './progress-indicator';
+import { CsvImportTool } from '../tools/csv-import-tool';
+import { CsvMergeViewer, MergeDecision } from './csv-merge-viewer';
+import { FileBrowser } from './file-browser';
 import { logger } from '../utils/logger';
 
 export class ToolsMenu {
@@ -26,6 +29,8 @@ export class ToolsMenu {
   private suggestionManager: SuggestionManager;
   private suggestionViewer: SuggestionViewer;
   private progressIndicator: ProgressIndicator;
+  private csvMergeViewer: CsvMergeViewer;
+  private fileBrowser: FileBrowser;
 
   constructor(
     screen: blessed.Widgets.Screen,
@@ -43,6 +48,10 @@ export class ToolsMenu {
 
     // Initialize progress indicator
     this.progressIndicator = new ProgressIndicator(screen);
+
+    // Initialize CSV import components
+    this.csvMergeViewer = new CsvMergeViewer(screen);
+    this.fileBrowser = new FileBrowser(screen);
 
     // Register tools
     this.registerTools();
@@ -84,6 +93,7 @@ export class ToolsMenu {
         '📧 Fix Email Formats',
         '🏢 Clean Company Names',
         '🔍 Find Missing Info',
+        '📥 Import Contacts from CSV',
         '🤖 AI: Semantic Search',
         '🧠 AI: Smart Deduplication',
         '📋 View All Available Tools',
@@ -229,6 +239,32 @@ The tool will:
 
 This tool will identify contacts missing essential information.`,
 
+      `{bold}{yellow-fg}Import Contacts from CSV{/yellow-fg}{/bold}
+
+Import contacts from CSV files with intelligent duplicate detection and merge suggestions.
+
+{bold}Features:{/bold}
+- Auto-detects column mapping (name, email, phone, company, etc.)
+- Finds similar contacts using smart matching algorithm
+- Shows side-by-side comparison before merging
+- Lets you approve/reject each merge individually
+- Safely adds new contacts that don't match existing ones
+
+{bold}Similarity Scoring:{/bold}
+- Name similarity: 35% (Jaro-Winkler)
+- Email match: 30%
+- Phone match: 20%
+- Company similarity: 15%
+
+{bold}Supported Fields:{/bold}
+- Names (first, last, middle, full)
+- Emails, phones (mobile, work, home)
+- Company, job title
+- Address (street, city, state, zip, country)
+- Notes, website, birthday
+
+{green-fg}Press Enter to select CSV file{/green-fg}`,
+
       `{bold}{yellow-fg}AI: Semantic Search{/yellow-fg}{/bold}
 
 Uses machine learning embeddings to search contacts by meaning, not just keywords.
@@ -296,13 +332,16 @@ ${this.getRegisteredToolsList()}
       case 3:
         await this.runCompanyNameCleaningTool();
         break;
+      case 5:
+        await this.runCsvImport();
+        break;
       case 6:
         this.showMessage('Semantic search feature coming soon to UI!', 'info');
         break;
       case 7:
         await this.runSmartDedupeTool();
         break;
-      case 5:
+      case 8:
         await this.showToolRegistry();
         break;
       default:
@@ -870,5 +909,136 @@ ${this.getRegisteredToolsList()}
 
     this.detailBox.setContent(content);
     this.screen.render();
+  }
+
+  private async runCsvImport(): Promise<void> {
+    try {
+      this.hide();
+
+      // Browse for CSV file
+      const csvFilePath = await this.fileBrowser.browse(['.csv']);
+
+      if (!csvFilePath) {
+        this.showMessage('CSV import cancelled', 'info');
+        return;
+      }
+
+      this.showMessage(`Importing contacts from ${csvFilePath}...`, 'info');
+      logger.info(`Starting CSV import from: ${csvFilePath}`);
+
+      // Import CSV
+      const csvImportTool = new CsvImportTool();
+      const importResult = await csvImportTool.importCsv(csvFilePath, this.contacts);
+
+      if (importResult.errors.length > 0) {
+        logger.error('CSV import errors:', importResult.errors);
+        this.showMessage(`CSV import had errors:\n${importResult.errors.join('\n')}`, 'error');
+        return;
+      }
+
+      logger.info(
+        `CSV import results: ${importResult.parsedContacts.length} parsed, ${importResult.matchedContacts.length} matches, ${importResult.newContacts.length} new`
+      );
+
+      // If there are no matches, just add all as new contacts
+      if (importResult.matchedContacts.length === 0) {
+        const choice = await this.showConfirmDialog(
+          'No Duplicates Found',
+          `Found ${importResult.newContacts.length} new contacts with no duplicates.\n\nImport all contacts?`,
+          ['Yes, import all', 'Cancel']
+        );
+
+        if (choice === 0) {
+          await this.importNewContacts(importResult.newContacts);
+          this.showMessage(`Successfully imported ${importResult.newContacts.length} new contacts!`, 'success');
+        } else {
+          this.showMessage('CSV import cancelled', 'info');
+        }
+        return;
+      }
+
+      // Show merge viewer for matches
+      this.csvMergeViewer.show(importResult.matchedContacts, async (decisions: MergeDecision[]) => {
+        if (decisions.length === 0) {
+          this.showMessage('CSV import cancelled', 'info');
+          return;
+        }
+
+        try {
+          // Process decisions
+          let mergedCount = 0;
+          let newFromMatchCount = 0;
+
+          for (const decision of decisions) {
+            if (decision.action === 'merge' && decision.match.mergedContact) {
+              // Apply merge
+              await this.contactsApi.updateContact(decision.match.mergedContact);
+
+              // Update local contacts array
+              const index = this.contacts.findIndex(
+                c => c.contactId === decision.match.existingContact.contactId
+              );
+              if (index !== -1) {
+                this.contacts[index] = decision.match.mergedContact;
+              }
+
+              mergedCount++;
+              logger.info(`Merged CSV contact into ${decision.match.existingContact.contactId}`);
+            } else if (decision.action === 'new') {
+              // Create as new contact
+              const newContact = await this.contactsApi.createContact(decision.match.csvContact);
+              this.contacts.push(newContact);
+              newFromMatchCount++;
+              logger.info(`Created new contact from CSV match: ${newContact.contactId}`);
+            }
+            // If 'skip', just ignore this CSV contact
+          }
+
+          // Import remaining new contacts (those that didn't match)
+          const remainingNewCount = await this.importNewContacts(importResult.newContacts);
+
+          // Show summary
+          const message = [
+            'CSV Import Complete!',
+            '',
+            `Merged: ${mergedCount} contacts`,
+            `New from matches: ${newFromMatchCount} contacts`,
+            `New contacts: ${remainingNewCount} contacts`,
+            `Skipped: ${decisions.filter(d => d.action === 'skip').length} contacts`,
+          ].join('\n');
+
+          this.showMessage(message, 'success');
+
+          // Notify parent component
+          this.onContactsUpdated(this.contacts);
+
+        } catch (error) {
+          logger.error('Error processing CSV import decisions:', error);
+          this.showMessage('Error processing CSV import. Check logs for details.', 'error');
+        }
+      });
+
+    } catch (error) {
+      logger.error('Error running CSV import:', error);
+      this.showMessage(
+        error instanceof Error ? error.message : 'An error occurred during CSV import',
+        'error'
+      );
+    }
+  }
+
+  private async importNewContacts(newContacts: Contact[]): Promise<number> {
+    let count = 0;
+    for (const csvContact of newContacts) {
+      try {
+        const newContact = await this.contactsApi.createContact(csvContact);
+        this.contacts.push(newContact);
+        count++;
+        logger.info(`Created new contact: ${newContact.contactId}`);
+      } catch (error) {
+        logger.error(`Failed to create contact:`, error);
+      }
+    }
+    return count;
   }
 }
