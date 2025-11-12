@@ -4,6 +4,7 @@ import { ToolsMenu } from './tools-menu';
 import { ContactsApi } from '../api/contacts';
 import { LoggingScreen } from './logging-screen';
 import { StatsScreen } from './stats-screen';
+import { SettingsScreen } from './settings-screen';
 import { StatsManager } from '../utils/stats-manager';
 
 export class Screen {
@@ -20,6 +21,7 @@ export class Screen {
   private toolsMenu: ToolsMenu;
   private loggingScreen: LoggingScreen;
   private statsScreen: StatsScreen;
+  private settingsScreen: SettingsScreen;
   private statsManager: StatsManager;
 
   constructor(contactsApi: ContactsApi) {
@@ -42,10 +44,14 @@ export class Screen {
       this.handleContactsUpdated(updatedContacts);
     });
     
-    // Initialize logging and stats screens
+    // Initialize logging, stats, and settings screens
     this.loggingScreen = new LoggingScreen(this.screen);
     this.statsScreen = new StatsScreen(this.screen, this.statsManager);
-    
+    this.settingsScreen = new SettingsScreen(this.screen, () => {
+      // Callback when settings are saved - could refresh data if needed
+      this.emit('settingsSaved');
+    });
+
     this.setupKeyHandling();
   }
 
@@ -134,7 +140,7 @@ export class Screen {
       left: 0,
       width: '100%',
       height: 3,
-      content: ' {cyan-fg}↑↓{/cyan-fg}: Navigate/View | {cyan-fg}/{/cyan-fg}: Search | {cyan-fg}t{/cyan-fg}: Tools | {cyan-fg}s{/cyan-fg}: Stats | {cyan-fg}l{/cyan-fg}: Logs | {cyan-fg}r{/cyan-fg}: Refresh | {cyan-fg}q{/cyan-fg}: Quit',
+      content: ' {cyan-fg}↑↓{/cyan-fg}: Navigate/View | {cyan-fg}/{/cyan-fg}: Search | {cyan-fg}t{/cyan-fg}: Tools | {cyan-fg}s{/cyan-fg}: Stats | {cyan-fg}l{/cyan-fg}: Logs | {cyan-fg}p{/cyan-fg}: Settings | {cyan-fg}r{/cyan-fg}: Refresh | {cyan-fg}q{/cyan-fg}: Quit',
       style: {
         fg: 'white',
         bg: 'black',
@@ -217,6 +223,12 @@ export class Screen {
     this.screen.key(['l'], () => {
       if (!this.isSearchMode && !this.toolsMenu.isShowing() && !this.statsScreen.isShowing()) {
         this.showLogs();
+      }
+    });
+
+    this.screen.key(['p'], () => {
+      if (!this.isSearchMode && !this.toolsMenu.isShowing() && !this.loggingScreen.isShowing() && !this.statsScreen.isShowing()) {
+        this.showSettings();
       }
     });
 
@@ -580,6 +592,10 @@ export class Screen {
 
   private showLogs(): void {
     this.loggingScreen.show();
+  }
+
+  private showSettings(): void {
+    this.settingsScreen.show();
   }
 
   private handleContactsUpdated(updatedContacts: Contact[]): void {
