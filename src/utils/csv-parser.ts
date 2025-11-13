@@ -44,18 +44,38 @@ export class CsvParser {
       // Validate file path
       const absolutePath = path.resolve(filePath);
 
+      // Security: Check for path traversal and symlinks
+      const realPath = fs.realpathSync(absolutePath);
+      if (realPath !== absolutePath) {
+        // Path contains symlinks - verify it's safe
+        logger.warn(`Symlink detected: ${absolutePath} -> ${realPath}`);
+      }
+
+      // Security: Validate against allowed directories (user's home, current working directory)
+      const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+      const cwd = process.cwd();
+      const tmpDir = process.env.TMPDIR || process.env.TEMP || '/tmp';
+
+      const isAllowedPath = realPath.startsWith(homeDir) ||
+                           realPath.startsWith(cwd) ||
+                           realPath.startsWith(tmpDir);
+
+      if (!isAllowedPath) {
+        throw new Error('Access denied: File path is outside allowed directories');
+      }
+
       // Check file extension
-      if (!absolutePath.toLowerCase().endsWith('.csv')) {
+      if (!realPath.toLowerCase().endsWith('.csv')) {
         throw new Error('Invalid file type: Only .csv files are allowed');
       }
 
       // Check file exists
-      if (!fs.existsSync(absolutePath)) {
+      if (!fs.existsSync(realPath)) {
         throw new Error('File not found');
       }
 
       // Check it's a file, not a directory
-      const stats = fs.statSync(absolutePath);
+      const stats = fs.statSync(realPath);
       if (!stats.isFile()) {
         throw new Error('Path must point to a file, not a directory');
       }
@@ -66,10 +86,10 @@ export class CsvParser {
         throw new Error(`File too large: ${(stats.size / 1024 / 1024).toFixed(2)}MB (maximum ${MAX_FILE_SIZE / 1024 / 1024}MB)`);
       }
 
-      logger.info(`Parsing CSV file: ${absolutePath} (${(stats.size / 1024).toFixed(2)}KB)`);
+      logger.info(`Parsing CSV file: ${realPath} (${(stats.size / 1024).toFixed(2)}KB)`);
 
-      // Read file asynchronously
-      const content = await fs.promises.readFile(absolutePath, this.options.encoding);
+      // Read file asynchronously (use realPath to ensure we read the actual file)
+      const content = await fs.promises.readFile(realPath, this.options.encoding);
       return this.parseString(content);
     } catch (error) {
       logger.error('Failed to parse CSV file:', error);
