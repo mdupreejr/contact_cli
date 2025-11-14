@@ -4,7 +4,7 @@
   "description": "CLI tool for managing ContactsPlus.com contacts with ncurses interface",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && mkdir -p dist/db && cp src/db/schema.sql dist/db/",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "type-check": "tsc --noEmit",
