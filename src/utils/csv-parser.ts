@@ -46,22 +46,24 @@ export class CsvParser {
 
       // Security: Check for path traversal and symlinks
       const realPath = fs.realpathSync(absolutePath);
-      if (realPath !== absolutePath) {
-        // Path contains symlinks - verify it's safe
-        logger.warn(`Symlink detected: ${absolutePath} -> ${realPath}`);
-      }
 
       // Security: Validate against allowed directories (user's home, current working directory)
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
       const cwd = process.cwd();
       const tmpDir = process.env.TMPDIR || process.env.TEMP || '/tmp';
 
+      // Validate the actual file path (resolves symlinks to their targets)
       const isAllowedPath = realPath.startsWith(homeDir) ||
                            realPath.startsWith(cwd) ||
                            realPath.startsWith(tmpDir);
 
       if (!isAllowedPath) {
         throw new Error('Access denied: File path is outside allowed directories');
+      }
+
+      // Log warning if symlink was used (for security audit trail)
+      if (realPath !== absolutePath) {
+        logger.warn(`Symlink detected and validated: ${absolutePath} -> ${realPath}`);
       }
 
       // Check file extension

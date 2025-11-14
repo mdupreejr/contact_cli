@@ -49,8 +49,8 @@ export interface SyncConflict {
   queueItem: SyncQueueItem;
   localHash: string;
   apiHash: string;
-  localContact: Contact;
-  apiContact: Contact;
+  localContact: Contact | null;
+  apiContact: Contact | null;
   reason: 'hash_mismatch' | 'not_found' | 'api_error';
 }
 
@@ -351,12 +351,13 @@ export class SyncEngine {
         // Fetch current API state
         const contacts = await this.api.getContactsByIds([item.contactId]);
         if (contacts.length === 0) {
+          const localContact = this.contactStore.getContact(item.contactId);
           conflicts.push({
             queueItem: item,
-            localHash: '',
+            localHash: localContact ? generateContactHash(localContact) : '',
             apiHash: '',
-            localContact: this.contactStore.getContact(item.contactId)!,
-            apiContact: this.contactStore.getContact(item.contactId)!,
+            localContact: localContact || null,
+            apiContact: null,
             reason: 'not_found',
           });
           continue;
@@ -371,7 +372,7 @@ export class SyncEngine {
             queueItem: item,
             localHash: '',
             apiHash,
-            localContact: apiContact, // Use API contact as placeholder
+            localContact: null,
             apiContact,
             reason: 'not_found',
           });

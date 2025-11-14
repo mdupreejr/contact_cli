@@ -15,6 +15,13 @@ import { ProgressIndicator } from './progress-indicator';
 import { CsvImportTool } from '../tools/csv-import-tool';
 import { CsvMergeViewer, MergeDecision } from './csv-merge-viewer';
 import { FileBrowser } from './file-browser';
+import { SyncQueueViewer } from './sync-queue-viewer';
+import { ImportHistoryViewer } from './import-history-viewer';
+import { SyncSettingsViewer } from './sync-settings-viewer';
+import { SyncProgressDialog } from './sync-progress-dialog';
+import { CsvExportTool } from '../tools/csv-export-tool';
+import { getDatabase, getContactStore, getSyncQueue, getImportHistory, getSyncEngine } from '../db';
+import { getSyncConfigManager } from '../db/sync-config';
 import { logger } from '../utils/logger';
 
 export class ToolsMenu {
@@ -31,6 +38,11 @@ export class ToolsMenu {
   private progressIndicator: ProgressIndicator;
   private csvMergeViewer: CsvMergeViewer;
   private fileBrowser: FileBrowser;
+  private syncQueueViewer: SyncQueueViewer;
+  private importHistoryViewer: ImportHistoryViewer;
+  private syncSettingsViewer: SyncSettingsViewer;
+  private syncProgressDialog: SyncProgressDialog;
+  private csvExportTool: CsvExportTool;
 
   constructor(
     screen: blessed.Widgets.Screen,
@@ -52,6 +64,19 @@ export class ToolsMenu {
     // Initialize CSV import components
     this.csvMergeViewer = new CsvMergeViewer(screen);
     this.fileBrowser = new FileBrowser(screen);
+
+    // Initialize database components
+    const db = getDatabase();
+    const syncQueue = getSyncQueue(db);
+    const contactStore = getContactStore(db);
+    const importHistory = getImportHistory(db);
+    const syncConfigManager = getSyncConfigManager(db);
+
+    this.syncQueueViewer = new SyncQueueViewer(screen, syncQueue, contactStore);
+    this.importHistoryViewer = new ImportHistoryViewer(screen, importHistory);
+    this.syncSettingsViewer = new SyncSettingsViewer(screen, syncConfigManager);
+    this.syncProgressDialog = new SyncProgressDialog(screen);
+    this.csvExportTool = new CsvExportTool();
 
     // Register tools
     this.registerTools();
@@ -94,6 +119,11 @@ export class ToolsMenu {
         '🏢 Clean Company Names',
         '🔍 Find Missing Info',
         '📥 Import Contacts from CSV',
+        '📤 Export Contacts to CSV',
+        '📤 Sync Queue Manager',
+        '📜 Import History',
+        '⚙️  Sync Settings',
+        '💾 Database Statistics',
         '🤖 AI: Semantic Search',
         '🧠 AI: Smart Deduplication',
         '📋 View All Available Tools',
@@ -336,12 +366,27 @@ ${this.getRegisteredToolsList()}
         await this.runCsvImport();
         break;
       case 6:
-        this.showMessage('Semantic search feature coming soon to UI!', 'info');
+        await this.runCsvExport();
         break;
       case 7:
-        await this.runSmartDedupeTool();
+        await this.showSyncQueue();
         break;
       case 8:
+        await this.showImportHistory();
+        break;
+      case 9:
+        await this.showSyncSettings();
+        break;
+      case 10:
+        await this.showDatabaseStats();
+        break;
+      case 11:
+        this.showMessage('Semantic search feature coming soon to UI!', 'info');
+        break;
+      case 12:
+        await this.runSmartDedupeTool();
+        break;
+      case 13:
         await this.showToolRegistry();
         break;
       default:
@@ -1119,5 +1164,168 @@ ${this.getRegisteredToolsList()}
       }
     }
     return count;
+  }
+
+  /**
+   * Run CSV Export
+   */
+  private async runCsvExport(): Promise<void> {
+    try {
+      this.hide();
+
+      // Show file browser for destination
+      const selectedPath = await this.fileBrowser.browse();
+
+      if (!selectedPath) {
+        this.show(this.contacts);
+        return;
+      }
+
+      // Use recommended filename
+      const filename = this.csvExportTool.getRecommendedFilename();
+      const filePath = `${selectedPath}/${filename}`;
+
+      // Export contacts
+      try {
+        const result = await this.csvExportTool.exportContacts(this.contacts, filePath);
+        const sizeKB = (result.fileSize / 1024).toFixed(2);
+        this.showMessage(
+          `Export successful!\n\nFile: ${result.filePath}\nContacts: ${result.rowCount}\nFields: ${result.fieldCount}\nSize: ${sizeKB}KB`,
+          'success'
+        );
+      } catch (error) {
+        logger.error('CSV export failed:', error);
+        this.showMessage('Failed to export CSV', 'error');
+      }
+
+      this.show(this.contacts);
+    } catch (error) {
+      logger.error('Failed to initiate CSV export:', error);
+      this.showMessage('Failed to export contacts', 'error');
+      this.show(this.contacts);
+    }
+  }
+
+  /**
+   * Show Sync Queue Manager
+   */
+  private async showSyncQueue(): Promise<void> {
+    try {
+      logger.info('Opening Sync Queue Manager...');
+      this.hide();
+
+      this.syncQueueViewer.show(() => {
+        // Callback when sync queue viewer closes
+        this.show(this.contacts);
+      });
+    } catch (error) {
+      logger.error('Failed to open Sync Queue Manager:', error);
+      this.showMessage('Failed to open Sync Queue Manager', 'error');
+    }
+  }
+
+  /**
+   * Show Import History
+   */
+  private async showImportHistory(): Promise<void> {
+    try {
+      logger.info('Opening Import History...');
+      this.hide();
+
+      this.importHistoryViewer.show(() => {
+        // Callback when viewer closes
+        this.show(this.contacts);
+      });
+    } catch (error) {
+      logger.error('Failed to open Import History:', error);
+      this.showMessage('Failed to open Import History', 'error');
+    }
+  }
+
+  /**
+   * Show Sync Settings
+   */
+  private async showSyncSettings(): Promise<void> {
+    try {
+      logger.info('Opening Sync Settings...');
+      this.hide();
+
+      this.syncSettingsViewer.show((saved) => {
+        // Callback when viewer closes
+        if (saved) {
+          this.showMessage('Sync settings saved successfully', 'success');
+        }
+        this.show(this.contacts);
+      });
+    } catch (error) {
+      logger.error('Failed to open Sync Settings:', error);
+      this.showMessage('Failed to open Sync Settings', 'error');
+    }
+  }
+
+  /**
+   * Show Database Statistics
+   */
+  private async showDatabaseStats(): Promise<void> {
+    try {
+      const db = getDatabase();
+      const stats = db.getStats();
+      const syncQueue = getSyncQueue(db);
+      const queueStats = syncQueue.getQueueStats();
+      const importHistory = getImportHistory(db);
+      const importStats = importHistory.getImportStats();
+
+      const message = [
+        '{bold}{cyan-fg}Database Statistics{/cyan-fg}{/bold}',
+        '',
+        '{bold}Local Contacts:{/bold}',
+        `  Total Contacts: ${stats.totalContacts}`,
+        `  Unsynced Contacts: ${stats.unsyncedContacts}`,
+        `  Database Size: ${stats.dbSize}`,
+        '',
+        '{bold}Sync Queue:{/bold}',
+        `  Pending: ${queueStats.pending}`,
+        `  Approved: ${queueStats.approved}`,
+        `  Syncing: ${queueStats.syncing}`,
+        `  Synced: ${queueStats.synced}`,
+        `  Failed: ${queueStats.failed}`,
+        `  Total: ${queueStats.total}`,
+        '',
+        '{bold}Import History:{/bold}',
+        `  Total Imports: ${importStats.totalImports}`,
+        `  Completed: ${importStats.completedImports}`,
+        `  Failed: ${importStats.failedImports}`,
+        `  Total Rows Imported: ${importStats.totalRowsImported}`,
+        `  Total Contacts Created: ${importStats.totalContactsCreated}`,
+        '',
+        '{green-fg}Press any key to close{/green-fg}',
+      ].join('\n');
+
+      const statsBox = blessed.message({
+        parent: this.screen,
+        top: 'center',
+        left: 'center',
+        width: 60,
+        height: 'shrink',
+        border: { type: 'line' },
+        style: {
+          fg: 'white',
+          bg: 'black',
+          border: { fg: 'cyan' },
+        },
+        tags: true,
+        padding: { left: 2, right: 2, top: 1, bottom: 1 },
+      });
+
+      statsBox.display(message, 0, () => {
+        statsBox.destroy();
+        this.screen.render();
+      });
+
+      this.screen.render();
+    } catch (error) {
+      logger.error('Failed to show database stats:', error);
+      this.showMessage('Failed to show database statistics', 'error');
+    }
   }
 }
