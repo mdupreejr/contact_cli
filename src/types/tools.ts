@@ -1,13 +1,25 @@
 import { Contact } from './contactsplus';
-import { ProgressTracker } from '../utils/progress-tracker';
+
+/**
+ * Interface for progress tracking during batch operations
+ * This is an interface to avoid circular dependencies (types -> utils)
+ */
+export interface IProgressTracker {
+  increment(count?: number, message?: string): void;
+  setCurrent(current: number, message?: string): void;
+  setTotal(total: number): void;
+  complete(message?: string): void;
+  reset(total?: number, message?: string): void;
+  isComplete(): boolean;
+}
 
 export interface ToolSuggestion {
   id: string;
   contactId: string;
   toolName: string;
   field: string;
-  originalValue: any;
-  suggestedValue: any;
+  originalValue: unknown;
+  suggestedValue: unknown;
   confidence: number;
   rationale: SuggestionRationale;
   timestamp: string;
@@ -17,8 +29,8 @@ export interface SuggestionRationale {
   reason: string;
   confidence: number;
   rulesApplied: string[];
-  validationResult?: any;
-  additionalInfo?: Record<string, any>;
+  validationResult?: unknown;
+  additionalInfo?: Record<string, unknown>;
 }
 
 export interface ToolResult {
@@ -44,9 +56,9 @@ export interface ChangeLogEntry {
   contactId: string;
   toolName: string;
   field: string;
-  originalValue: any;
-  suggestedValue: any;
-  appliedValue?: any;
+  originalValue: unknown;
+  suggestedValue: unknown;
+  appliedValue?: unknown;
   userDecision: 'approved' | 'rejected' | 'modified' | 'pending';
   decisionTimestamp?: string;
   rationale: SuggestionRationale;
@@ -71,7 +83,7 @@ export interface ToolMetrics {
 export interface ToolConfig {
   enabled: boolean;
   priority: number;
-  options: Record<string, any>;
+  options: Record<string, unknown>;
 }
 
 export abstract class BaseTool {
@@ -99,7 +111,7 @@ export abstract class BaseTool {
   /**
    * Process multiple contacts and return suggestions for all
    */
-  async batchAnalyze(contacts: Contact[], progressTracker?: ProgressTracker): Promise<BatchToolResult> {
+  async batchAnalyze(contacts: Contact[], progressTracker?: IProgressTracker): Promise<BatchToolResult> {
     const startTime = Date.now();
     const results: ToolResult[] = [];
     const errors: string[] = [];
@@ -195,8 +207,8 @@ export abstract class BaseTool {
   protected createSuggestion(
     contactId: string,
     field: string,
-    originalValue: any,
-    suggestedValue: any,
+    originalValue: unknown,
+    suggestedValue: unknown,
     rationale: SuggestionRationale
   ): ToolSuggestion {
     return {

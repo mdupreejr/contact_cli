@@ -19,6 +19,7 @@ export class SuggestionViewer {
   private listNavigator?: ListNavigator;
   private suggestions: ToolSuggestion[] = [];
   private selectedIndex = 0;
+  private onComplete?: (batchId: string, summary: Record<string, unknown>) => void;
 
   constructor(screen: blessed.Widgets.Screen, suggestionManager: SuggestionManager) {
     this.screen = screen;
@@ -207,9 +208,20 @@ export class SuggestionViewer {
     });
   }
 
-  async show(batchId: string, onComplete?: (batchId: string, summary: any) => void): Promise<void> {
+  async show(batchId: string, onComplete?: (batchId: string, summary: Record<string, unknown>) => void): Promise<void> {
     this.currentBatchId = batchId;
     this.onComplete = onComplete;
+
+    const progress = this.suggestionManager.getBatchProgress(batchId);
+    if (!progress || progress.total === 0) {
+      // No suggestions to show, complete immediately
+      if (onComplete) {
+        const summary = this.suggestionManager.getBatchSummary(batchId);
+        onComplete(batchId, summary as Record<string, unknown>);
+      }
+      return;
+    }
+
     this.isVisible = true;
 
     const batch = this.suggestionManager.getBatch(batchId);
@@ -239,6 +251,9 @@ export class SuggestionViewer {
     this.listNavigator.setIndex(this.selectedIndex);
 
     this.suggestionList.focus();
+    this.container.focus();
+
+    await this.updateDisplay();
     this.screen.render();
   }
 
@@ -262,6 +277,14 @@ export class SuggestionViewer {
     const batch = this.suggestionManager.getBatch(this.currentBatchId);
     if (!batch) {
       this.hide();
+      return;
+    }
+
+    const suggestion = this.suggestionManager.getCurrentSuggestion(this.currentBatchId);
+    const progress = this.suggestionManager.getBatchProgress(this.currentBatchId);
+
+    if (!suggestion || !progress || progress.total === 0) {
+      await this.handleBatchComplete();
       return;
     }
 
@@ -332,6 +355,20 @@ export class SuggestionViewer {
 
     // Update detail box
     const content = `{bold}{yellow-fg}Field:{/yellow-fg}{/bold} ${suggestion.field}
+  /**
+   * Escape blessed.js special characters to prevent rendering issues.
+   * Uses blessed.js official escape() function to convert tags like {bold}
+   * to {open}bold{close} so they display as literal text.
+   */
+  private escapeBlessedMarkup(text: string): string {
+    return blessed.escape(text);
+  }
+
+  private displaySuggestion(suggestion: ToolSuggestion): void {
+    // Escape blessed.js special characters in field name
+    const escapedField = this.escapeBlessedMarkup(suggestion.field);
+
+    const content = `{bold}{yellow-fg}Field:{/yellow-fg}{/bold} ${escapedField}
 
 {bold}{red-fg}Current Value:{/red-fg}{/bold}
 ${this.formatValue(suggestion.originalValue)}
@@ -369,7 +406,7 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
     this.rationaleBox.setContent(content);
   }
 
-  private formatValue(value: any): string {
+  private formatValue(value: unknown): string {
     if (value === null || value === undefined) {
       return '{gray-fg}(empty){/gray-fg}';
     }
@@ -508,6 +545,7 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
       this.screen.remove(modifyDialog);
 
       let modifiedValue: any = value;
+      let modifiedValue: unknown = value;
 
       // Try to parse as JSON if it looks like JSON
       if (value.startsWith('{') || value.startsWith('[') || value === 'null' || value === 'true' || value === 'false') {
@@ -580,7 +618,7 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
     const summary = this.suggestionManager.getBatchSummary(this.currentBatchId);
 
     if (this.onComplete) {
-      this.onComplete(this.currentBatchId, summary);
+      this.onComplete(this.currentBatchId, summary as Record<string, unknown>);
     }
 
     this.hide();

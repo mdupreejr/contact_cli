@@ -96,7 +96,11 @@ export async function trainModel(): Promise<{
     }
 
     // Load current weights
-    const dedupeModulePath = path.join(__dirname, 'dedupe.ts');
+    // Try .js first (production/compiled), then .ts (dev/ts-node)
+    let dedupeModulePath = path.join(__dirname, 'dedupe.js');
+    if (!fs.existsSync(dedupeModulePath)) {
+      dedupeModulePath = path.join(__dirname, 'dedupe.ts');
+    }
     let currentWeightsStr = '';
     try {
       const content = fs.readFileSync(dedupeModulePath, 'utf-8');

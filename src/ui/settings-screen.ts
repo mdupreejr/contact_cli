@@ -1,6 +1,9 @@
 import * as blessed from 'blessed';
 import { AppSettings } from '../types/settings';
 import { getSettingsManager } from '../utils/settings-manager';
+import { getSyncConfigManager } from '../db/sync-config';
+import { getDatabase } from '../db';
+import { SyncSettingsViewer } from './sync-settings-viewer';
 import { logger } from '../utils/logger';
 
 export class SettingsScreen {
@@ -10,6 +13,7 @@ export class SettingsScreen {
   private visible: boolean = false;
   private settingsManager = getSettingsManager();
   private onSettingsSaved?: () => void;
+  private syncSettingsViewer: SyncSettingsViewer;
 
   // Form fields
   private fields: Map<string, blessed.Widgets.CheckboxElement | blessed.Widgets.TextboxElement> = new Map();
@@ -17,15 +21,25 @@ export class SettingsScreen {
   constructor(screen: blessed.Widgets.Screen, onSettingsSaved?: () => void) {
     this.screen = screen;
     this.onSettingsSaved = onSettingsSaved;
+
+    // Initialize sync settings viewer
+    const db = getDatabase();
+    const syncConfigManager = getSyncConfigManager(db);
+    this.syncSettingsViewer = new SyncSettingsViewer(screen, syncConfigManager);
   }
 
   async show(): Promise<void> {
-    if (this.visible) return;
+    try {
+      if (this.visible) return;
 
-    const settings = this.settingsManager.getSettings();
-    this.createUI(settings);
-    this.visible = true;
-    this.screen.render();
+      const settings = this.settingsManager.getSettings();
+      this.createUI(settings);
+      this.visible = true;
+      this.screen.render();
+    } catch (error) {
+      logger.error('Failed to show settings screen:', error);
+      throw error;
+    }
   }
 
   hide(): void {
@@ -63,18 +77,21 @@ export class SettingsScreen {
       tags: true,
       scrollable: true,
       alwaysScroll: true,
+      scrollbar: {
+        ch: '│',
+        style: { fg: 'blue' },
+      },
       keys: true,
       vi: true,
       mouse: true,
     });
 
-    // Create form
+    // Create form - height will be auto-calculated based on content
     this.form = blessed.form({
       parent: this.container,
       top: 0,
       left: 0,
       width: '100%',
-      height: '100%-3',
       keys: true,
       vi: true,
     });
@@ -108,17 +125,27 @@ export class SettingsScreen {
     currentTop = this.addCheckbox('debugEnabled', 'Enable Debug Mode', settings.debug.enabled, currentTop);
     currentTop = this.addCheckbox('logApiRequests', 'Log API Requests', settings.debug.logApiRequests, currentTop);
 
+    // Add padding at bottom for scrolling
+    currentTop += 5;
+
+    // Set form height to accommodate all content
+    if (this.form) {
+      this.form.height = currentTop;
+    }
+
     // Buttons at the bottom
     this.addButtons();
 
     // Set up key handlers
     this.setupKeyHandlers();
 
-    // Focus first field
-    const firstField = Array.from(this.fields.values())[0];
-    if (firstField) {
-      firstField.focus();
+    // Set scroll height for container
+    if (this.container) {
+      this.container.setScrollPerc(0);
     }
+
+    // Focus container to enable scrolling
+    this.container.focus();
   }
 
   private addSection(title: string, top: number): number {
@@ -200,11 +227,46 @@ export class SettingsScreen {
   }
 
   private addButtons(): void {
+    // Sync Settings button
+    const syncSettingsButton = blessed.button({
+      parent: this.container,
+      bottom: 1,
+      left: 2,
+      width: 18,
+      height: 3,
+      content: '{center}Sync Settings{/center}',
+      border: {
+        type: 'line',
+      },
+      style: {
+        fg: 'white',
+        border: {
+          fg: 'cyan',
+        },
+        focus: {
+          bg: 'cyan',
+          border: {
+            fg: 'brightcyan',
+          },
+        },
+      },
+      tags: true,
+      keys: true,
+      mouse: true,
+    });
+
+    syncSettingsButton.on('press', () => {
+      this.showSyncSettings().catch((error) => {
+        logger.error('Failed to show sync settings:', error);
+        this.showMessage('Failed to open Sync Settings', 'error');
+      });
+    });
+
     // Save button
     const saveButton = blessed.button({
       parent: this.container,
       bottom: 1,
-      left: 2,
+      left: 22,
       width: 12,
       height: 3,
       content: '{center}Save{/center}',
@@ -229,13 +291,21 @@ export class SettingsScreen {
       mouse: true,
     });
 
-    saveButton.on('press', () => this.saveSettings());
+    saveButton.on('press', () => {
+      this.saveSettings().catch((error) => {
+        logger.error('Failed to save settings:', error);
+        this.showMessage(
+          error instanceof Error ? error.message : 'Failed to save settings',
+          'error'
+        );
+      });
+    });
 
     // Cancel button
     const cancelButton = blessed.button({
       parent: this.container,
       bottom: 1,
-      left: 16,
+      left: 36,
       width: 12,
       height: 3,
       content: '{center}Cancel{/center}',
@@ -265,7 +335,7 @@ export class SettingsScreen {
     const resetButton = blessed.button({
       parent: this.container,
       bottom: 1,
-      left: 30,
+      left: 50,
       width: 18,
       height: 3,
       content: '{center}Reset to Defaults{/center}',
@@ -289,7 +359,12 @@ export class SettingsScreen {
       mouse: true,
     });
 
-    resetButton.on('press', () => this.resetSettings());
+    resetButton.on('press', () => {
+      this.resetSettings().catch((error) => {
+        logger.error('Failed to reset settings:', error);
+        this.showMessage('Failed to reset settings', 'error');
+      });
+    });
   }
 
   private setupKeyHandlers(): void {
@@ -300,7 +375,13 @@ export class SettingsScreen {
     });
 
     this.container.key(['C-s'], () => {
-      this.saveSettings();
+      this.saveSettings().catch((error) => {
+        logger.error('Failed to save settings:', error);
+        this.showMessage(
+          error instanceof Error ? error.message : 'Failed to save settings',
+          'error'
+        );
+      });
     });
 
     this.container.key(['tab'], () => {
@@ -368,11 +449,31 @@ export class SettingsScreen {
     try {
       await this.settingsManager.reset();
       this.hide();
-      this.show(); // Reload with default values
+      await this.show(); // Reload with default values
       this.showMessage('Settings reset to defaults', 'success');
     } catch (error) {
       logger.error('Failed to reset settings:', error);
       this.showMessage('Failed to reset settings', 'error');
+    }
+  }
+
+  private async showSyncSettings(): Promise<void> {
+    try {
+      logger.info('Opening Sync Settings from Settings screen...');
+      this.hide();
+
+      this.syncSettingsViewer.show((saved) => {
+        if (saved) {
+          this.showMessage('Sync settings saved successfully', 'success');
+        }
+        // Re-show settings screen after sync settings closes
+        this.show().catch((error) => {
+          logger.error('Failed to re-show settings after sync:', error);
+        });
+      });
+    } catch (error) {
+      logger.error('Failed to open Sync Settings:', error);
+      this.showMessage('Failed to open Sync Settings', 'error');
     }
   }
 

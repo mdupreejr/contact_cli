@@ -36,7 +36,7 @@ export class TokenStorage {
       }
 
       // Parse and validate expiry data
-      let expiry: any;
+      let expiry: unknown;
       try {
         expiry = JSON.parse(expiryData);
       } catch (parseError) {
@@ -47,10 +47,11 @@ export class TokenStorage {
       }
 
       // Validate expiry data structure
+      const expiryObj = expiry as Record<string, unknown>;
       if (!expiry ||
-          typeof expiry.access_token_expiration !== 'number' ||
-          typeof expiry.refresh_token_expiration !== 'number' ||
-          typeof expiry.scope !== 'string') {
+          typeof expiryObj.access_token_expiration !== 'number' ||
+          typeof expiryObj.refresh_token_expiration !== 'number' ||
+          typeof expiryObj.scope !== 'string') {
         logger.error('Invalid token expiry data structure');
         await this.clearTokens();
         return null;
@@ -58,8 +59,8 @@ export class TokenStorage {
 
       // Validate expiration values are reasonable
       const now = Date.now();
-      if (expiry.access_token_expiration < now - (365 * 24 * 60 * 60 * 1000) || // Not more than 1 year in the past
-          expiry.access_token_expiration > now + (365 * 24 * 60 * 60 * 1000)) {  // Not more than 1 year in the future
+      if (expiryObj.access_token_expiration < now - (365 * 24 * 60 * 60 * 1000) || // Not more than 1 year in the past
+          expiryObj.access_token_expiration > now + (365 * 24 * 60 * 60 * 1000)) {  // Not more than 1 year in the future
         logger.error('Invalid token expiration timestamp');
         await this.clearTokens();
         return null;
@@ -68,11 +69,11 @@ export class TokenStorage {
       return {
         access_token: accessToken,
         refresh_token: refreshToken,
-        access_token_expiration: expiry.access_token_expiration,
-        access_token_expiration_date: new Date(expiry.access_token_expiration).toISOString(),
-        refresh_token_expiration: expiry.refresh_token_expiration,
-        refresh_token_expiration_date: new Date(expiry.refresh_token_expiration).toISOString(),
-        scope: expiry.scope,
+        access_token_expiration: expiryObj.access_token_expiration,
+        access_token_expiration_date: new Date(expiryObj.access_token_expiration).toISOString(),
+        refresh_token_expiration: expiryObj.refresh_token_expiration as number,
+        refresh_token_expiration_date: new Date(expiryObj.refresh_token_expiration as number).toISOString(),
+        scope: expiryObj.scope,
       };
     } catch (error) {
       logger.error('Failed to retrieve tokens:', error);
@@ -92,25 +93,31 @@ export class TokenStorage {
     }
   }
 
+  /**
+   * Check if access token is still valid
+   * Uses a safety buffer to prevent TOCTOU race condition where token
+   * expires between check and use
+   */
   async isTokenValid(): Promise<boolean> {
     const tokens = await this.getTokens();
-    if (!tokens) {
-      return false;
-    }
+    if (!tokens) return false;
 
     const now = Date.now();
-    return now < tokens.access_token_expiration;
+    const SAFETY_BUFFER = 60 * 1000; // 60 seconds buffer
+    return now < (tokens.access_token_expiration - SAFETY_BUFFER);
   }
 
+  /**
+   * Check if token needs refresh
+   * Uses larger window (10 min) to ensure refresh happens well before expiration
+   * and account for network latency and clock skew
+   */
   async needsRefresh(): Promise<boolean> {
     const tokens = await this.getTokens();
-    if (!tokens) {
-      return false;
-    }
+    if (!tokens) return false;
 
     const now = Date.now();
-    // Check if token expires in next 5 minutes
-    const fiveMinutesFromNow = now + (5 * 60 * 1000);
-    return fiveMinutesFromNow >= tokens.access_token_expiration;
+    const TEN_MINUTES = 10 * 60 * 1000;  // Increase from 5 to 10 minutes
+    return (now + TEN_MINUTES) >= tokens.access_token_expiration;
   }
 }

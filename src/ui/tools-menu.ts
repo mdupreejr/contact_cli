@@ -12,6 +12,18 @@ import { SuggestionManager } from '../utils/suggestion-manager';
 import { SuggestionViewer } from './suggestion-viewer';
 import { ProgressTracker } from '../utils/progress-tracker';
 import { ProgressIndicator } from './progress-indicator';
+import { ToolExecutor } from '../utils/tool-executor';
+import { CsvImportTool } from '../tools/csv-import-tool';
+import { CsvMergeViewer, MergeDecision } from './csv-merge-viewer';
+import { FileBrowser } from './file-browser';
+import { SyncQueueViewer } from './sync-queue-viewer';
+import { ImportHistoryViewer } from './import-history-viewer';
+import { SyncSettingsViewer } from './sync-settings-viewer';
+import { SyncProgressDialog } from './sync-progress-dialog';
+import { CsvExportTool } from '../tools/csv-export-tool';
+import { getDatabase, getContactStore, getSyncQueue, getImportHistory, getSyncEngine } from '../db';
+import { getSyncConfigManager } from '../db/sync-config';
+import { getToolActivityTracker } from '../db/tool-activity-tracker';
 import { logger } from '../utils/logger';
 
 export class ToolsMenu {
@@ -26,6 +38,13 @@ export class ToolsMenu {
   private suggestionManager: SuggestionManager;
   private suggestionViewer: SuggestionViewer;
   private progressIndicator: ProgressIndicator;
+  private csvMergeViewer: CsvMergeViewer;
+  private fileBrowser: FileBrowser;
+  private syncQueueViewer: SyncQueueViewer;
+  private importHistoryViewer: ImportHistoryViewer;
+  private syncSettingsViewer: SyncSettingsViewer;
+  private syncProgressDialog: SyncProgressDialog;
+  private csvExportTool: CsvExportTool;
 
   constructor(
     screen: blessed.Widgets.Screen,
@@ -43,6 +62,23 @@ export class ToolsMenu {
 
     // Initialize progress indicator
     this.progressIndicator = new ProgressIndicator(screen);
+
+    // Initialize CSV import components
+    this.csvMergeViewer = new CsvMergeViewer(screen);
+    this.fileBrowser = new FileBrowser(screen);
+
+    // Initialize database components
+    const db = getDatabase();
+    const syncQueue = getSyncQueue(db);
+    const contactStore = getContactStore(db);
+    const importHistory = getImportHistory(db);
+    const syncConfigManager = getSyncConfigManager(db);
+
+    this.syncQueueViewer = new SyncQueueViewer(screen, syncQueue, contactStore, this.contactsApi);
+    this.importHistoryViewer = new ImportHistoryViewer(screen, importHistory);
+    this.syncSettingsViewer = new SyncSettingsViewer(screen, syncConfigManager);
+    this.syncProgressDialog = new SyncProgressDialog(screen);
+    this.csvExportTool = new CsvExportTool();
 
     // Register tools
     this.registerTools();
@@ -79,14 +115,17 @@ export class ToolsMenu {
       width: '40%',
       height: '100%-2',
       items: [
-        '🔧 Fix Duplicate Names',
-        '📞 Normalize Phone Numbers',
-        '📧 Fix Email Formats',
-        '🏢 Clean Company Names',
-        '🔍 Find Missing Info',
-        '🤖 AI: Semantic Search',
-        '🧠 AI: Smart Deduplication',
-        '📋 View All Available Tools',
+        '1. 🔧 Fix Duplicate Names',
+        '2. 📞 Normalize Phone Numbers',
+        '3. 📧 Fix Email Formats',
+        '4. 🏢 Clean Company Names',
+        '5. 📥 Import Contacts from CSV',
+        '6. 📤 Export Contacts to CSV',
+        '7. 📤 Sync Queue Manager',
+        '8. 📜 Import History',
+        '9. 🤖 AI: Semantic Search',
+        '10. 🧠 AI: Smart Deduplication',
+        '11. 📋 View All Available Tools',
       ],
       border: {
         type: 'line',
@@ -147,18 +186,70 @@ export class ToolsMenu {
 
     this.toolsList.key(['enter'], () => {
       const selectedIndex = (this.toolsList as any).selected || 0;
-      this.runTool(selectedIndex);
+      this.runTool(selectedIndex).catch((error) => {
+        logger.error('Failed to run tool:', error);
+        this.showMessage('Failed to run tool', 'error');
+      });
     });
 
     this.toolsBox.key(['escape', 'q'], () => {
       this.hide();
     });
 
-    this.toolsList.key(['1'], () => this.runTool(0));
-    this.toolsList.key(['2'], () => this.runTool(1));
-    this.toolsList.key(['3'], () => this.runTool(2));
-    this.toolsList.key(['4'], () => this.runTool(3));
-    this.toolsList.key(['5'], () => this.runTool(4));
+    this.toolsList.key(['1'], () => {
+      this.runTool(0).catch((error) => {
+        logger.error('Failed to run tool:', error);
+        this.showMessage('Failed to run tool', 'error');
+      });
+    });
+    this.toolsList.key(['2'], () => {
+      this.runTool(1).catch((error) => {
+        logger.error('Failed to run tool:', error);
+        this.showMessage('Failed to run tool', 'error');
+      });
+    });
+    this.toolsList.key(['3'], () => {
+      this.runTool(2).catch((error) => {
+        logger.error('Failed to run tool:', error);
+        this.showMessage('Failed to run tool', 'error');
+      });
+    });
+    this.toolsList.key(['4'], () => {
+      this.runTool(3).catch((error) => {
+        logger.error('Failed to run tool:', error);
+        this.showMessage('Failed to run tool', 'error');
+      });
+    });
+    this.toolsList.key(['5'], () => {
+      this.runTool(4).catch((error) => {
+        logger.error('Failed to run tool:', error);
+        this.showMessage('Failed to run tool', 'error');
+      });
+    });
+    this.toolsList.key(['6'], () => {
+      this.runTool(5).catch((error) => {
+        logger.error('Failed to run tool:', error);
+        this.showMessage('Failed to run tool', 'error');
+      });
+    });
+    this.toolsList.key(['7'], () => {
+      this.runTool(6).catch((error) => {
+        logger.error('Failed to run tool:', error);
+        this.showMessage('Failed to run tool', 'error');
+      });
+    });
+    this.toolsList.key(['8'], () => {
+      this.runTool(7).catch((error) => {
+        logger.error('Failed to run tool:', error);
+        this.showMessage('Failed to run tool', 'error');
+      });
+    });
+    this.toolsList.key(['9'], () => {
+      this.runTool(8).catch((error) => {
+        logger.error('Failed to run tool:', error);
+        this.showMessage('Failed to run tool', 'error');
+      });
+    });
   }
 
   private showToolDetails(toolIndex: number): void {
@@ -223,11 +314,94 @@ The tool will:
 
 {green-fg}Press Enter to run this tool{/green-fg}`,
 
-      `{bold}{yellow-fg}Find Missing Info{/yellow-fg}{/bold}
+      `{bold}{yellow-fg}Import Contacts from CSV{/yellow-fg}{/bold}
 
-{red-fg}Coming Soon{/red-fg}
+Import contacts from CSV files with intelligent duplicate detection and merge suggestions.
 
-This tool will identify contacts missing essential information.`,
+{bold}Features:{/bold}
+- Auto-detects column mapping (name, email, phone, company, etc.)
+- Finds similar contacts using smart matching algorithm
+- Shows side-by-side comparison before merging
+- Lets you approve/reject each merge individually
+- Safely adds new contacts that don't match existing ones
+
+{bold}Similarity Scoring:{/bold}
+- Name similarity: 35% (Jaro-Winkler)
+- Email match: 30%
+- Phone match: 20%
+- Company similarity: 15%
+
+{bold}Supported Fields:{/bold}
+- Names (first, last, middle, full)
+- Emails, phones (mobile, work, home)
+- Company, job title
+- Address (street, city, state, zip, country)
+- Notes, website, birthday
+
+{green-fg}Press Enter to select CSV file{/green-fg}`,
+
+      `{bold}{yellow-fg}Export Contacts to CSV{/yellow-fg}{/bold}
+
+Export your contacts to a CSV file for backup or use in other applications.
+
+{bold}Features:{/bold}
+- Exports all contact fields
+- Includes names, emails, phones, companies
+- Includes addresses and custom fields
+- Creates timestamped export file
+
+{bold}Export Location:{/bold}
+- Saved to exports/ directory
+- Filename includes timestamp for versioning
+- Compatible with Excel, Google Sheets, etc.
+
+{green-fg}Press Enter to export contacts{/green-fg}`,
+
+      `{bold}{yellow-fg}Sync Queue Manager{/yellow-fg}{/bold}
+
+Review and approve changes before syncing to ContactsPlus API.
+
+{bold}Features:{/bold}
+- Review all pending changes
+- See before/after comparison
+- Approve or reject individual changes
+- Bulk operations with multi-select
+- See which ML tool suggested each change
+
+{bold}Keyboard Shortcuts:{/bold}
+- a: Approve selected item
+- r: Reject selected item
+- Space: Toggle multi-select
+- s: Sync all approved items to API
+- d: Delete selected item
+
+{bold}Status Indicators:{/bold}
+- Pending: Waiting for approval
+- Approved: Ready to sync
+- Syncing: Currently syncing
+- Synced: Successfully synced
+- Failed: Sync failed (can retry)
+
+{green-fg}Press Enter to open queue manager{/green-fg}`,
+
+      `{bold}{yellow-fg}Import History{/yellow-fg}{/bold}
+
+View and manage your contact import history.
+
+{bold}Features:{/bold}
+- See all import sessions
+- Track ML tool analysis runs
+- View item counts and success rates
+- Delete old import sessions
+- See timestamps and sources
+
+{bold}Import Types:{/bold}
+- CSV imports
+- Manual edits
+- ML tool suggestions
+- Background analysis
+
+{green-fg}Press Enter to view import history{/green-fg}`,
 
       `{bold}{yellow-fg}AI: Semantic Search{/yellow-fg}{/bold}
 
@@ -296,13 +470,25 @@ ${this.getRegisteredToolsList()}
       case 3:
         await this.runCompanyNameCleaningTool();
         break;
-      case 6:
-        this.showMessage('Semantic search feature coming soon to UI!', 'info');
-        break;
-      case 7:
-        await this.runSmartDedupeTool();
+      case 4:
+        await this.runCsvImport();
         break;
       case 5:
+        await this.runCsvExport();
+        break;
+      case 6:
+        await this.showSyncQueue();
+        break;
+      case 7:
+        await this.showImportHistory();
+        break;
+      case 8:
+        this.showMessage('Semantic search feature coming soon to UI!', 'info');
+        break;
+      case 9:
+        await this.runSmartDedupeTool();
+        break;
+      case 10:
         await this.showToolRegistry();
         break;
       default:
@@ -313,53 +499,112 @@ ${this.getRegisteredToolsList()}
 
   private async runDuplicateNameFixer(): Promise<void> {
     try {
-      this.showMessage('Analyzing contacts for duplicate names...', 'info');
+      // Initialize scrollable log
+      this.detailBox.setContent('');
+      this.appendToLog('Starting Duplicate Name Analysis', 'info');
+      this.appendToLog(`Analyzing ${this.contacts.length} contacts...`, 'info');
+      this.appendToLog('='.repeat(60), 'info');
 
       const fixer = new DuplicateNameFixer(this.contactsApi);
-      const issues = fixer.findDuplicateNames(this.contacts);
+      const issues = fixer.findDuplicateNames(this.contacts, (current, total, message) => {
+        this.appendToLog(`[${current}/${total}] ${message}`, 'info');
+      });
+
+      this.appendToLog('='.repeat(60), 'info');
+      this.appendToLog(`Analysis complete: Found ${issues.length} contacts with duplicate names`, 'success');
 
       if (issues.length === 0) {
-        this.showMessage('Great! No duplicate names found in your contacts.', 'success');
+        this.appendToLog('Great! No duplicate names found in your contacts.', 'success');
+        setTimeout(() => {
+          this.showMessage('Great! No duplicate names found in your contacts.', 'success');
+        }, 1500);
         return;
       }
 
       // Show issues and let user fix them one by one
-      await this.processDuplicateNameIssues(fixer, issues);
+      setTimeout(() => {
+        this.processDuplicateNameIssues(fixer, issues);
+      }, 1500);
 
     } catch (error) {
       logger.error('Error running duplicate name fixer:', error);
-      this.showMessage('Error running duplicate name fixer. Check logs for details.', 'error');
+      this.appendToLog(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   }
 
   private async processDuplicateNameIssues(fixer: DuplicateNameFixer, issues: DuplicateNameIssue[]): Promise<void> {
-    let fixedCount = 0;
+    let queuedCount = 0;
     let skippedCount = 0;
+    const syncQueue = getSyncQueue();
+    const contactStore = getContactStore();
 
     for (let i = 0; i < issues.length; i++) {
       const issue = issues[i];
       const summary = fixer.getIssueSummary(issue);
-      
+
       const choice = await this.showConfirmDialog(
         `Fix Duplicate Name (${i + 1}/${issues.length})`,
-        `Contact: ${fixer.formatNameForDisplay(issue.contact.contactData.name || {})}\n\n${summary}\n\nApply this fix?`,
-        ['Yes, fix it', 'Skip this one', 'Cancel tool']
+        `Contact: ${fixer.formatNameForDisplay(issue.contact.contactData.name || {})}\n\n${summary}\n\nQueue this fix for approval?`,
+        ['Yes, queue it', 'Skip this one', 'Cancel tool']
       );
 
-      if (choice === 0) { // Yes, fix it
+      if (choice === 0) { // Yes, queue it
         try {
-          this.showMessage(`Fixing contact ${i + 1}/${issues.length}...`, 'info');
-          const updatedContact = await fixer.applyFix(issue.contact, issue.suggestedFix);
-          
-          // Update the contact in our local array
-          const contactIndex = this.contacts.findIndex(c => c.contactId === issue.contact.contactId);
-          if (contactIndex !== -1) {
-            this.contacts[contactIndex] = updatedContact;
+          // Check if this exact change is already in the queue
+          const existingQueueItems = syncQueue.getQueueItems({
+            syncStatus: ['pending', 'approved'],
+          });
+
+          const alreadyQueued = existingQueueItems.some(item => {
+            if (item.contactId !== issue.contact.contactId) return false;
+            if (!item.dataAfter?.name) return false;
+
+            // Check if the queued change matches the suggested fix
+            const queuedName = item.dataAfter.name;
+            const suggestedName = issue.suggestedFix;
+
+            return queuedName.givenName === suggestedName.givenName &&
+                   queuedName.familyName === suggestedName.familyName &&
+                   queuedName.middleName === suggestedName.middleName &&
+                   queuedName.prefix === suggestedName.prefix &&
+                   queuedName.suffix === suggestedName.suffix;
+          });
+
+          if (alreadyQueued) {
+            this.showMessage(`Contact ${i + 1}/${issues.length} already queued, skipping...`, 'info');
+            skippedCount++;
+            continue;
           }
-          
-          fixedCount++;
+
+          // Queue the change instead of applying directly
+          const updatedContactData = {
+            ...issue.contact.contactData,
+            name: issue.suggestedFix,
+          };
+
+          syncQueue.addToQueue(
+            issue.contact.contactId,
+            'update',
+            updatedContactData,
+            issue.contact.contactData,
+            undefined
+          );
+
+          // Update local contact store
+          contactStore.saveContact(
+            {
+              ...issue.contact,
+              contactData: updatedContactData,
+            },
+            'manual',
+            undefined,
+            false // Not synced to API yet
+          );
+
+          queuedCount++;
         } catch (error) {
-          this.showMessage(`Failed to fix contact ${i + 1}. Continuing with next...`, 'error');
+          logger.error(`Failed to queue fix for contact ${i + 1}:`, error);
+          this.showMessage(`Failed to queue contact ${i + 1}. Continuing with next...`, 'error');
           skippedCount++;
         }
       } else if (choice === 1) { // Skip this one
@@ -370,13 +615,45 @@ ${this.getRegisteredToolsList()}
     }
 
     // Show final summary
-    const message = `Duplicate Name Fixer Complete!\n\nFixed: ${fixedCount} contacts\nSkipped: ${skippedCount} contacts`;
+    const message = `Duplicate Name Fixer Complete!\n\nQueued: ${queuedCount} contacts\nSkipped: ${skippedCount} contacts\n\nGo to Sync Queue Manager to review and sync changes.`;
     this.showMessage(message, 'success');
 
+    // Track tool activity
+    const activityTracker = getToolActivityTracker();
+    await activityTracker.recordToolExecution('Duplicate Name Fixer', issues.length, queuedCount);
+
     // Notify parent component about updated contacts
-    if (fixedCount > 0) {
+    if (queuedCount > 0) {
       this.onContactsUpdated(this.contacts);
     }
+  }
+
+  /**
+   * Append a line to the detail box log with auto-scroll and size limits
+   */
+  private appendToLog(message: string, type: 'info' | 'success' | 'error'): void {
+    const MAX_LOG_LINES = 1000; // Prevent memory leaks from unbounded log growth
+
+    const colors = {
+      info: 'cyan',
+      success: 'green',
+      error: 'red',
+    };
+
+    const color = colors[type];
+    const currentContent = this.detailBox.getContent();
+    let lines = currentContent ? currentContent.split('\n') : [];
+
+    lines.push(`{${color}-fg}${message}{/${color}-fg}`);
+
+    // Keep only last MAX_LOG_LINES to prevent memory leaks
+    if (lines.length > MAX_LOG_LINES) {
+      lines = lines.slice(-MAX_LOG_LINES);
+    }
+
+    this.detailBox.setContent(lines.join('\n'));
+    this.detailBox.setScrollPerc(100); // Auto-scroll to bottom
+    this.screen.render();
   }
 
   private showMessage(message: string, type: 'info' | 'success' | 'error'): void {
@@ -519,6 +796,10 @@ ${this.getRegisteredToolsList()}
     return this.isVisible;
   }
 
+  getSyncQueueViewer(): SyncQueueViewer {
+    return this.syncQueueViewer;
+  }
+
   private registerTools(): void {
     // Register duplicate name fixer (existing)
     // Note: DuplicateNameFixer would need to be converted to extend BaseTool
@@ -584,58 +865,39 @@ ${this.getRegisteredToolsList()}
         return;
       }
 
-      // Create progress tracker and show indicator
-      const tracker = new ProgressTracker(this.contacts.length, 'Analyzing contacts...');
-      this.progressIndicator.show(tracker, 'Phone Number Normalization');
+      // Initialize scrollable log
+      this.detailBox.setContent('');
+      this.appendToLog('Starting Phone Number Normalization', 'info');
+      this.appendToLog(`Analyzing ${this.contacts.length} contacts...`, 'info');
+      this.appendToLog('='.repeat(60), 'info');
 
-      // Analyze all contacts with progress tracking
-      const result = await phoneNormalizationTool.batchAnalyze(this.contacts, tracker);
-      
-      if (result.totalSuggestions === 0) {
-        this.showMessage('Great! All phone numbers are already properly formatted.', 'success');
+      // Use ToolExecutor for standardized execution
+      const result = await ToolExecutor.runTool(phoneNormalizationTool, this.contacts, {
+        sessionIdPrefix: 'phone_normalization',
+        onProgress: (current, total, message) => {
+          if (current % 100 === 0 || current === total) {
+            this.appendToLog(`[${current}/${total}] ${message} ${((current / total) * 100).toFixed(1)}%`, 'info');
+          }
+        },
+      });
+
+      this.appendToLog('='.repeat(60), 'info');
+      this.appendToLog(`Analysis complete: Found ${result.suggestions} phone numbers to normalize`, 'success');
+
+      if (result.suggestions === 0) {
+        this.appendToLog('Great! All phone numbers are already properly formatted.', 'success');
+        setTimeout(() => {
+          this.showMessage('Great! All phone numbers are already properly formatted.', 'success');
+        }, 1500);
         return;
       }
 
-      // Process suggestions for each contact
-      let totalFixed = 0;
-      for (const contactResult of result.results) {
-        if (contactResult.suggestions.length === 0) continue;
-
-        const contact = this.contacts.find(c => c.contactId === contactResult.contactId);
-        if (!contact) continue;
-
-        // Create suggestion batch
-        const batchId = await this.suggestionManager.createBatch(
-          'Phone Number Normalization',
-          contact.contactId,
-          contactResult.suggestions,
-          contact
-        );
-
-        // Show suggestion viewer
-        await new Promise<void>((resolve) => {
-          this.suggestionViewer.show(batchId, (completedBatchId, summary) => {
-            logger.info(`Completed batch ${completedBatchId}: ${summary?.successRate}% success rate`);
-            totalFixed += summary?.approved || 0;
-            resolve();
-          });
-        });
-      }
-
-      // Show final summary
-      const message = `Phone Number Normalization Complete!\n\nProcessed: ${result.processedContacts} contacts\nSuggestions: ${result.totalSuggestions}\nApplied: ${totalFixed} changes`;
-      this.showMessage(message, 'success');
-
-      // Refresh contacts if changes were made
-      if (totalFixed > 0) {
-        this.showMessage('Refreshing contact list...', 'info');
-        // Note: Would need to reload contacts from API
-        this.onContactsUpdated(this.contacts);
-      }
+      this.appendToLog(`Queued ${result.queued} phone number updates to sync queue`, 'success');
+      this.appendToLog('Go to Sync Queue Manager (option 7) to review and approve changes', 'info');
 
     } catch (error) {
       logger.error('Error running phone normalization tool:', error);
-      this.showMessage('Error running phone normalization tool. Check logs for details.', 'error');
+      this.appendToLog(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   }
 
@@ -647,186 +909,154 @@ ${this.getRegisteredToolsList()}
         return;
       }
 
-      // Create progress tracker and show indicator
-      const tracker = new ProgressTracker(this.contacts.length, 'Analyzing contacts...');
-      this.progressIndicator.show(tracker, 'Company Name Cleaning');
+      // Initialize scrollable log
+      this.detailBox.setContent('');
+      this.appendToLog('Starting Company Name Cleaning', 'info');
+      this.appendToLog(`Analyzing ${this.contacts.length} contacts...`, 'info');
+      this.appendToLog('='.repeat(60), 'info');
 
-      // Analyze all contacts with progress tracking
-      const result = await companyNameCleaningTool.batchAnalyze(this.contacts, tracker);
+      // Use ToolExecutor for standardized execution
+      const result = await ToolExecutor.runTool(companyNameCleaningTool, this.contacts, {
+        sessionIdPrefix: 'company_cleaning',
+        onProgress: (current, total, message) => {
+          if (current % 100 === 0 || current === total) {
+            this.appendToLog(`[${current}/${total}] ${message} ${((current / total) * 100).toFixed(1)}%`, 'info');
+          }
+        },
+      });
 
-      if (result.totalSuggestions === 0) {
-        this.showMessage('Great! All company names are already properly formatted.', 'success');
+      this.appendToLog('='.repeat(60), 'info');
+      this.appendToLog(`Analysis complete: Found ${result.suggestions} company names to clean`, 'success');
+
+      if (result.suggestions === 0) {
+        this.appendToLog('Great! All company names are already properly formatted.', 'success');
+        setTimeout(() => {
+          this.showMessage('Great! All company names are already properly formatted.', 'success');
+        }, 1500);
         return;
       }
 
-      // Process suggestions for each contact
-      let totalFixed = 0;
-      for (const contactResult of result.results) {
-        if (contactResult.suggestions.length === 0) continue;
+      this.appendToLog(`Queued ${result.queued} company name updates to sync queue`, 'success');
+      this.appendToLog('Go to Sync Queue Manager (option 7) to review and approve changes', 'info');
 
-        const contact = this.contacts.find(c => c.contactId === contactResult.contactId);
-        if (!contact) continue;
-
-        // Create suggestion batch
-        const batchId = await this.suggestionManager.createBatch(
-          'Company Name Cleaning',
-          contact.contactId,
-          contactResult.suggestions,
-          contact
-        );
-
-        // Show suggestion viewer
-        await new Promise<void>((resolve) => {
-          this.suggestionViewer.show(batchId, (completedBatchId, summary) => {
-            logger.info(`Completed batch ${completedBatchId}: ${summary?.successRate}% success rate`);
-            totalFixed += summary?.approved || 0;
-            resolve();
-          });
-        });
-      }
-
-      // Show final summary
-      const message = `Company Name Cleaning Complete!\n\nProcessed: ${result.processedContacts} contacts\nSuggestions: ${result.totalSuggestions}\nApplied: ${totalFixed} changes`;
-      this.showMessage(message, 'success');
-
-      // Refresh contacts if changes were made
-      if (totalFixed > 0) {
-        this.showMessage('Refreshing contact list...', 'info');
-        this.onContactsUpdated(this.contacts);
-      }
+      setTimeout(() => {
+        this.showMessage(`Queued ${result.queued} company name updates.\n\nGo to Sync Queue Manager to review and approve.`, 'success');
+      }, 1500);
     } catch (error) {
       logger.error('Error running company name cleaning tool:', error);
-      this.showMessage(
-        error instanceof Error ? error.message : 'An error occurred while running the tool',
-        'error'
-      );
+      this.appendToLog(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   }
 
   private async runEmailValidationTool(): Promise<void> {
     try {
-
       const emailValidationTool = toolRegistry.getTool('Email Validation');
       if (!emailValidationTool) {
         this.showMessage('Email validation tool not found in registry', 'error');
         return;
       }
 
-      // Create progress tracker and show indicator
-      const tracker = new ProgressTracker(this.contacts.length, 'Analyzing contacts...');
-      this.progressIndicator.show(tracker, 'Email Validation');
+      // Initialize scrollable log
+      this.detailBox.setContent('');
+      this.appendToLog('Starting Email Validation', 'info');
+      this.appendToLog(`Analyzing ${this.contacts.length} contacts...`, 'info');
+      this.appendToLog('='.repeat(60), 'info');
 
-      // Analyze all contacts with progress tracking
-      const result = await emailValidationTool.batchAnalyze(this.contacts, tracker);
+      // Use ToolExecutor for standardized execution
+      const result = await ToolExecutor.runTool(emailValidationTool, this.contacts, {
+        sessionIdPrefix: 'email_validation',
+        onProgress: (current, total, message) => {
+          if (current % 100 === 0 || current === total) {
+            this.appendToLog(`[${current}/${total}] ${message} ${((current / total) * 100).toFixed(1)}%`, 'info');
+          }
+        },
+      });
 
-      if (result.totalSuggestions === 0) {
-        this.showMessage('Great! All email addresses are valid.', 'success');
+      this.appendToLog('='.repeat(60), 'info');
+      this.appendToLog(`Analysis complete: Found ${result.suggestions} email issues`, 'success');
+
+      if (result.suggestions === 0) {
+        this.appendToLog('Great! All email addresses are valid.', 'success');
+        setTimeout(() => {
+          this.showMessage('Great! All email addresses are valid.', 'success');
+        }, 1500);
         return;
       }
 
-      // Process suggestions for each contact
-      let totalFixed = 0;
-      for (const contactResult of result.results) {
-        if (contactResult.suggestions.length === 0) continue;
+      this.appendToLog(`Queued ${result.queued} email updates to sync queue`, 'success');
+      this.appendToLog('Go to Sync Queue Manager (option 7) to review and approve changes', 'info');
 
-        const contact = this.contacts.find(c => c.contactId === contactResult.contactId);
-        if (!contact) continue;
-
-        // Create suggestion batch
-        const batchId = await this.suggestionManager.createBatch(
-          'Email Validation',
-          contact.contactId,
-          contactResult.suggestions,
-          contact
-        );
-
-        // Show suggestion viewer
-        await new Promise<void>((resolve) => {
-          this.suggestionViewer.show(batchId, (completedBatchId, summary) => {
-            logger.info(`Completed batch ${completedBatchId}: ${summary?.successRate}% success rate`);
-            totalFixed += summary?.approved || 0;
-            resolve();
-          });
-        });
-      }
-
-      // Show final summary
-      const message = `Email Validation Complete!\n\nProcessed: ${result.processedContacts} contacts\nSuggestions: ${result.totalSuggestions}\nApplied: ${totalFixed} changes`;
-      this.showMessage(message, 'success');
-
-      // Refresh contacts if changes were made
-      if (totalFixed > 0) {
-        this.showMessage('Refreshing contact list...', 'info');
-        this.onContactsUpdated(this.contacts);
-      }
     } catch (error) {
       logger.error('Error running email validation tool:', error);
-      this.showMessage(
-        error instanceof Error ? error.message : 'An error occurred while running the tool',
-        'error'
-      );
+      this.appendToLog(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   }
 
   private async runSmartDedupeTool(): Promise<void> {
     try {
-      this.showMessage('Running ML-powered duplicate detection...', 'info');
-
       const smartDedupeTool = toolRegistry.getTool('Smart Deduplication');
       if (!smartDedupeTool) {
         this.showMessage('Smart deduplication tool not found in registry', 'error');
         return;
       }
 
+      // Initialize scrollable log
+      this.detailBox.setContent('');
+      this.appendToLog('Starting AI Smart Deduplication', 'info');
+      this.appendToLog(`Analyzing ${this.contacts.length} contacts...`, 'info');
+      this.appendToLog('='.repeat(60), 'info');
+
       // Run batch analysis
       const result = await smartDedupeTool.batchAnalyze(this.contacts);
 
+      this.appendToLog('='.repeat(60), 'info');
+      this.appendToLog(`Analysis complete: Found ${result.totalSuggestions} potential duplicates`, 'success');
+
       if (result.totalSuggestions === 0) {
-        this.showMessage('Great! No duplicate contacts detected.', 'success');
+        this.appendToLog('Great! No duplicate contacts detected.', 'success');
+        setTimeout(() => {
+          this.showMessage('Great! No duplicate contacts detected.', 'success');
+        }, 1500);
         return;
       }
 
-      // Process suggestions for each contact pair
-      let totalFixed = 0;
-      for (const contactResult of result.results) {
-        if (contactResult.suggestions.length === 0) continue;
+      // Show the duplicate pairs found
+      this.appendToLog(`\nFound ${result.totalSuggestions} potential duplicate pairs:`, 'success');
+      this.appendToLog('', 'info');
 
-        const contact = this.contacts.find(c => c.contactId === contactResult.contactId);
-        if (!contact) continue;
+      // Display each duplicate pair
+      if (result.results && result.results.length > 0) {
+        for (let i = 0; i < result.results.length && i < 20; i++) {
+          const contactResult = result.results[i];
+          if (contactResult.suggestions && contactResult.suggestions.length > 0) {
+            const suggestion = contactResult.suggestions[0];
+            const contact1 = this.contacts.find(c => c.contactId === contactResult.contactId);
+            const contact1Name = contact1?.contactData?.name
+              ? [contact1.contactData.name.givenName, contact1.contactData.name.familyName].filter(Boolean).join(' ')
+              : contact1?.contactData?.emails?.[0]?.value || 'Unknown';
 
-        // Create suggestion batch
-        const batchId = await this.suggestionManager.createBatch(
-          'Smart Deduplication',
-          contact.contactId,
-          contactResult.suggestions,
-          contact
-        );
+            this.appendToLog(`${i + 1}. ${contact1Name} might be duplicate`, 'info');
+          }
+        }
 
-        // Show suggestion viewer
-        await new Promise<void>((resolve) => {
-          this.suggestionViewer.show(batchId, (completedBatchId, summary) => {
-            logger.info(`Completed batch ${completedBatchId}: ${summary?.successRate}% success rate`);
-            totalFixed += summary?.approved || 0;
-            resolve();
-          });
-        });
+        if (result.results.length > 20) {
+          this.appendToLog(`... and ${result.results.length - 20} more`, 'info');
+        }
       }
 
-      // Show final summary
-      const message = `Smart Deduplication Complete!\n\nPotential duplicates found: ${result.totalSuggestions}\nMerges performed: ${totalFixed}`;
-      this.showMessage(message, 'success');
+      this.appendToLog('', 'info');
+      this.appendToLog('Note: Duplicate merging requires manual review.', 'info');
+      this.appendToLog('This feature will be enhanced to allow selecting which contact to keep.', 'info');
 
-      // Refresh contacts if changes were made
-      if (totalFixed > 0) {
-        this.showMessage('Refreshing contact list...', 'info');
-        this.onContactsUpdated(this.contacts);
-      }
+      // Track tool activity
+      const activityTracker = getToolActivityTracker();
+      await activityTracker.recordToolExecution('AI Smart Deduplication', result.totalSuggestions, 0);
+
+      // Keep message visible - user must press a key to continue
+      this.showMessage(`Found ${result.totalSuggestions} potential duplicates.\n\nSee details in the window.\n\nDuplicate merging requires manual review (coming soon).`, 'info');
     } catch (error) {
       logger.error('Error running smart deduplication tool:', error);
-      this.showMessage(
-        error instanceof Error ? error.message : 'An error occurred while running the tool',
-        'error'
-      );
+      this.appendToLog(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   }
 
@@ -870,5 +1100,410 @@ ${this.getRegisteredToolsList()}
 
     this.detailBox.setContent(content);
     this.screen.render();
+  }
+
+  private async runCsvImport(): Promise<void> {
+    try {
+      this.hide();
+
+      // Browse for CSV file
+      const csvFilePath = await this.fileBrowser.browse(['.csv']);
+
+      if (!csvFilePath) {
+        this.showMessage('CSV import cancelled', 'info');
+        return;
+      }
+
+      this.showMessage(`Importing contacts from ${csvFilePath}...`, 'info');
+      logger.info(`Starting CSV import from: ${csvFilePath}`);
+
+      // Import CSV
+      const csvImportTool = new CsvImportTool();
+      const importResult = await csvImportTool.importCsv(csvFilePath, this.contacts);
+
+      if (importResult.errors.length > 0) {
+        logger.error('CSV import errors:', importResult.errors);
+        this.showMessage(`CSV import had errors:\n${importResult.errors.join('\n')}`, 'error');
+        return;
+      }
+
+      logger.info(
+        `CSV import results: ${importResult.parsedContacts.length} parsed, ${importResult.matchedContacts.length} matches, ${importResult.newContacts.length} new`
+      );
+
+      // If there are no matches, just queue all as new contacts
+      if (importResult.matchedContacts.length === 0) {
+        const choice = await this.showConfirmDialog(
+          'No Duplicates Found',
+          `Found ${importResult.newContacts.length} new contacts with no duplicates.\n\nQueue all contacts for import?`,
+          ['Yes, queue all', 'Cancel']
+        );
+
+        if (choice === 0) {
+          const syncQueue = getSyncQueue();
+          const contactStore = getContactStore();
+          const importSession = `csv_import_${Date.now()}`;
+
+          const queued = await this.queueNewContacts(importResult.newContacts, importSession);
+          this.showMessage(
+            `Queued ${queued} contacts for import!\n\nGo to Sync Queue Manager to review and sync.`,
+            'success'
+          );
+        } else {
+          this.showMessage('CSV import cancelled', 'info');
+        }
+        return;
+      }
+
+      // Show merge viewer for matches (Stage 1: Review)
+      this.csvMergeViewer.show(importResult.matchedContacts, async (decisions: MergeDecision[]) => {
+        if (decisions.length === 0) {
+          this.showMessage('CSV import cancelled', 'info');
+          return;
+        }
+
+        // Stage 2: Show confirmation dialog with summary before syncing
+        const mergeCount = decisions.filter(d => d.action === 'merge').length;
+        const newFromMatchCount = decisions.filter(d => d.action === 'new').length;
+        const skipCount = decisions.filter(d => d.action === 'skip').length;
+        const totalNewContacts = importResult.newContacts.length + newFromMatchCount;
+
+        const confirmMessage = [
+          'Ready to queue changes for review?',
+          '',
+          'Summary of changes:',
+          `  • ${mergeCount} contacts will be merged (updated)`,
+          `  • ${totalNewContacts} new contacts will be created`,
+          `  • ${skipCount} contacts will be skipped`,
+          '',
+          'Changes will be added to sync queue for your review.',
+          'Continue?'
+        ].join('\n');
+
+        const confirmed = await this.showConfirmDialog(
+          'Confirm CSV Import',
+          confirmMessage,
+          ['Yes, queue changes', 'Cancel']
+        );
+
+        if (confirmed !== 0) {
+          this.showMessage('CSV import cancelled - no changes made', 'info');
+          return;
+        }
+
+        // User confirmed - now queue the changes
+        try {
+          this.showMessage('Queuing changes for review...', 'info');
+
+          // Process decisions - queue them instead of syncing directly
+          const syncQueue = getSyncQueue();
+          const contactStore = getContactStore();
+          const importSession = `csv_import_${Date.now()}`;
+
+          let queuedMerges = 0;
+          let queuedNewFromMatch = 0;
+
+          for (const decision of decisions) {
+            if (decision.action === 'merge' && decision.match.mergedContact) {
+              try {
+                // Queue the merge operation
+                syncQueue.addToQueue(
+                  decision.match.existingContact.contactId,
+                  'update',
+                  decision.match.mergedContact.contactData,
+                  decision.match.existingContact.contactData,
+                  importSession
+                );
+
+                // Update local contact store
+                contactStore.saveContact(
+                  decision.match.mergedContact,
+                  'csv_import',
+                  importSession,
+                  false // Not synced yet
+                );
+
+                queuedMerges++;
+                logger.info(`Queued merge for contact ${decision.match.existingContact.contactId}`);
+              } catch (error) {
+                logger.error(`Failed to queue merge for ${decision.match.existingContact.contactId}:`, error);
+              }
+            } else if (decision.action === 'new') {
+              try {
+                // Queue new contact creation
+                syncQueue.addToQueue(
+                  decision.match.csvContact.contactId || `temp-${Date.now()}-${queuedNewFromMatch}`,
+                  'create',
+                  decision.match.csvContact.contactData,
+                  undefined,
+                  importSession
+                );
+
+                // Save to local store
+                contactStore.saveContact(
+                  decision.match.csvContact,
+                  'csv_import',
+                  importSession,
+                  false // Not synced yet
+                );
+
+                queuedNewFromMatch++;
+                logger.info(`Queued new contact from CSV match`);
+              } catch (error) {
+                logger.error(`Failed to queue new contact:`, error);
+              }
+            }
+            // If 'skip', just ignore this CSV contact
+          }
+
+          // Queue remaining new contacts (those that didn't match)
+          const queuedRemainingNew = await this.queueNewContacts(importResult.newContacts, importSession);
+
+          // Show summary
+          const summaryLines = [
+            'CSV Import Queued!',
+            '',
+            `Queued merges: ${queuedMerges} contacts`,
+            `Queued new from matches: ${queuedNewFromMatch} contacts`,
+            `Queued new contacts: ${queuedRemainingNew} contacts`,
+            `Skipped: ${decisions.filter(d => d.action === 'skip').length} contacts`,
+            '',
+            'Go to Sync Queue Manager to review and sync changes.'
+          ];
+
+          const message = summaryLines.join('\n');
+
+          this.showMessage(message, 'success');
+
+          // Notify parent component
+          this.onContactsUpdated(this.contacts);
+
+        } catch (error) {
+          logger.error('Error processing CSV import decisions:', error);
+          this.showMessage('Error processing CSV import. Check logs for details.', 'error');
+        }
+      });
+
+    } catch (error) {
+      logger.error('Error running CSV import:', error);
+      this.showMessage(
+        error instanceof Error ? error.message : 'An error occurred during CSV import',
+        'error'
+      );
+    }
+  }
+
+  private async queueNewContacts(newContacts: Contact[], importSession: string): Promise<number> {
+    const syncQueue = getSyncQueue();
+    const contactStore = getContactStore();
+    let count = 0;
+
+    for (const csvContact of newContacts) {
+      try {
+        // Queue new contact creation
+        syncQueue.addToQueue(
+          csvContact.contactId || `temp-${Date.now()}-${count}`,
+          'create',
+          csvContact.contactData,
+          undefined,
+          importSession
+        );
+
+        // Save to local store
+        contactStore.saveContact(
+          csvContact,
+          'csv_import',
+          importSession,
+          false // Not synced yet
+        );
+
+        count++;
+        logger.info(`Queued new contact for creation`);
+      } catch (error) {
+        logger.error(`Failed to queue new contact:`, error);
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Run CSV Export
+   */
+  private async runCsvExport(): Promise<void> {
+    try {
+      this.hide();
+
+      // Show file browser for destination (returns directory or file path)
+      const selectedPath = await this.fileBrowser.browse([]);
+
+      if (!selectedPath) {
+        this.show(this.contacts);
+        return;
+      }
+
+      // Determine if selected path is a directory or file
+      const fs = require('fs');
+      const path = require('path');
+      let filePath: string;
+
+      try {
+        const stats = fs.statSync(selectedPath);
+        if (stats.isDirectory()) {
+          // If directory, append recommended filename
+          const filename = this.csvExportTool.getRecommendedFilename();
+          filePath = path.join(selectedPath, filename);
+        } else {
+          // If file, use it directly (user is overwriting or chose a specific name)
+          filePath = selectedPath;
+        }
+      } catch (error) {
+        // If path doesn't exist, treat as a file path
+        filePath = selectedPath;
+      }
+
+      // Export contacts
+      try {
+        const result = await this.csvExportTool.exportContacts(this.contacts, filePath);
+        const sizeKB = (result.fileSize / 1024).toFixed(2);
+        this.showMessage(
+          `Export successful!\n\nFile: ${result.filePath}\nContacts: ${result.rowCount}\nFields: ${result.fieldCount}\nSize: ${sizeKB}KB`,
+          'success'
+        );
+      } catch (error) {
+        logger.error('CSV export failed:', error);
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        this.showMessage(`Failed to export CSV:\n${errorMsg}`, 'error');
+      }
+
+      this.show(this.contacts);
+    } catch (error) {
+      logger.error('Failed to initiate CSV export:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.showMessage(`Failed to export contacts:\n${errorMsg}`, 'error');
+      this.show(this.contacts);
+    }
+  }
+
+  /**
+   * Show Sync Queue Manager
+   */
+  private async showSyncQueue(): Promise<void> {
+    try {
+      logger.info('Opening Sync Queue Manager...');
+      this.hide();
+
+      this.syncQueueViewer.showWithCallback(() => {
+        // Callback when sync queue viewer closes
+        this.show(this.contacts);
+      });
+    } catch (error) {
+      logger.error('Failed to open Sync Queue Manager:', error);
+      this.showMessage('Failed to open Sync Queue Manager', 'error');
+    }
+  }
+
+  /**
+   * Show Import History
+   */
+  private async showImportHistory(): Promise<void> {
+    try {
+      logger.info('Opening Import History...');
+      this.hide();
+
+      this.importHistoryViewer.show(() => {
+        // Callback when viewer closes
+        this.show(this.contacts);
+      });
+    } catch (error) {
+      logger.error('Failed to open Import History:', error);
+      this.showMessage('Failed to open Import History', 'error');
+    }
+  }
+
+  /**
+   * Show Sync Settings
+   */
+  private async showSyncSettings(): Promise<void> {
+    try {
+      logger.info('Opening Sync Settings...');
+      this.hide();
+
+      this.syncSettingsViewer.show((saved) => {
+        // Callback when viewer closes
+        if (saved) {
+          this.showMessage('Sync settings saved successfully', 'success');
+        }
+        this.show(this.contacts);
+      });
+    } catch (error) {
+      logger.error('Failed to open Sync Settings:', error);
+      this.showMessage('Failed to open Sync Settings', 'error');
+    }
+  }
+
+  /**
+   * Show Database Statistics
+   */
+  private async showDatabaseStats(): Promise<void> {
+    try {
+      const db = getDatabase();
+      const stats = db.getStats();
+      const syncQueue = getSyncQueue(db);
+      const queueStats = syncQueue.getQueueStats();
+      const importHistory = getImportHistory(db);
+      const importStats = importHistory.getImportStats();
+
+      const message = [
+        '{bold}{cyan-fg}Database Statistics{/cyan-fg}{/bold}',
+        '',
+        '{bold}Local Contacts:{/bold}',
+        `  Total Contacts: ${stats.totalContacts}`,
+        `  Unsynced Contacts: ${stats.unsyncedContacts}`,
+        `  Database Size: ${stats.dbSize}`,
+        '',
+        '{bold}Sync Queue:{/bold}',
+        `  Pending: ${queueStats.pending}`,
+        `  Approved: ${queueStats.approved}`,
+        `  Syncing: ${queueStats.syncing}`,
+        `  Synced: ${queueStats.synced}`,
+        `  Failed: ${queueStats.failed}`,
+        `  Total: ${queueStats.total}`,
+        '',
+        '{bold}Import History:{/bold}',
+        `  Total Imports: ${importStats.totalImports}`,
+        `  Completed: ${importStats.completedImports}`,
+        `  Failed: ${importStats.failedImports}`,
+        `  Total Rows Imported: ${importStats.totalRowsImported}`,
+        `  Total Contacts Created: ${importStats.totalContactsCreated}`,
+        '',
+        '{green-fg}Press any key to close{/green-fg}',
+      ].join('\n');
+
+      const statsBox = blessed.message({
+        parent: this.screen,
+        top: 'center',
+        left: 'center',
+        width: 60,
+        height: 'shrink',
+        border: { type: 'line' },
+        style: {
+          fg: 'white',
+          bg: 'black',
+          border: { fg: 'cyan' },
+        },
+        tags: true,
+        padding: { left: 2, right: 2, top: 1, bottom: 1 },
+      });
+
+      statsBox.display(message, 0, () => {
+        statsBox.destroy();
+        this.screen.render();
+      });
+
+      this.screen.render();
+    } catch (error) {
+      logger.error('Failed to show database stats:', error);
+      this.showMessage('Failed to show database statistics', 'error');
+    }
   }
 }

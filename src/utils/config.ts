@@ -11,8 +11,12 @@ export function getConfig(): ContactsPlusConfig {
   const authBase = process.env.CONTACTSPLUS_AUTH_BASE || 'https://app.contactsplus.com';
   const scopes = process.env.OAUTH_SCOPES || 'contacts.read,account.read';
 
-  if (!clientId || !clientSecret) {
-    throw new Error('Missing required environment variables: CONTACTSPLUS_CLIENT_ID and CONTACTSPLUS_CLIENT_SECRET');
+  if (!clientId) {
+    throw new Error('Missing required environment variable: CONTACTSPLUS_CLIENT_ID');
+  }
+
+  if (clientSecret) {
+    console.warn('WARNING: CONTACTSPLUS_CLIENT_SECRET is deprecated. CLI applications should use PKCE flow instead.');
   }
 
   return {

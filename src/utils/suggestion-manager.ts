@@ -4,6 +4,9 @@ import { ContactsApi } from '../api/contacts';
 import { ChangeLogger } from './change-logger';
 import { logger } from './logger';
 import { saveFeedback } from '../ml/feedback-store';
+import { getSyncQueue } from '../db/sync-queue';
+import { getContactStore } from '../db/contact-store';
+import { FieldParser } from './field-parser';
 
 export interface SuggestionBatch {
   id: string;
@@ -20,7 +23,7 @@ export interface SuggestionResult {
   suggestionId: string;
   logEntryId: string;
   decision: 'approved' | 'rejected' | 'modified' | 'pending';
-  appliedValue?: any;
+  appliedValue?: unknown;
   timestamp?: string;
 }
 
@@ -132,7 +135,7 @@ export class SuggestionManager {
   async processDecision(
     batchId: string,
     decision: 'approve' | 'reject' | 'modify' | 'skip',
-    modifiedValue?: any
+    modifiedValue?: unknown
   ): Promise<{ success: boolean; error?: string; completed: boolean }> {
     const batch = this.getBatch(batchId);
     if (!batch || batch.completed) {
@@ -184,9 +187,10 @@ export class SuggestionManager {
             : suggestion.confidence;
 
           if (features && Array.isArray(features) && features.length === 7) {
+            const matchedContact = (additionalInfo.matchedContact as { id?: string }) || {};
             saveFeedback({
               contactAId: suggestion.contactId,
-              contactBId: additionalInfo.matchedContact?.id || '',
+              contactBId: matchedContact.id || '',
               userDecision: finalDecision === 'approved' ? 'approved' : 'rejected',
               features,
               modelScore
@@ -335,7 +339,7 @@ export class SuggestionManager {
     return cleaned;
   }
 
-  private async applySuggestion(suggestion: ToolSuggestion, value: any): Promise<ApplyResult> {
+  private async applySuggestion(suggestion: ToolSuggestion, value: unknown): Promise<ApplyResult> {
     try {
       // Get the current contact
       const contacts = await this.contactsApi.getContactsByIds([suggestion.contactId]);
@@ -345,73 +349,56 @@ export class SuggestionManager {
 
       const contact = contacts[0];
       const updatedContact = this.applyValueToContact(contact, suggestion.field, value);
-      
-      // Update the contact via API
-      const result = await this.contactsApi.updateContact(updatedContact);
-      
-      logger.info(`Applied suggestion ${suggestion.id} to contact ${suggestion.contactId}`);
-      return { success: true, updatedContact: result };
+
+      // Queue the change instead of applying directly to API
+      const syncQueue = getSyncQueue();
+      const contactStore = getContactStore();
+
+      // Check if this exact change is already in the queue
+      const existingQueueItems = syncQueue.getQueueItems({
+        syncStatus: ['pending', 'approved'],
+      });
+
+      const alreadyQueued = existingQueueItems.some(item => {
+        return item.contactId === contact.contactId &&
+               JSON.stringify(item.dataAfter) === JSON.stringify(updatedContact.contactData);
+      });
+
+      if (alreadyQueued) {
+        logger.info(`Suggestion ${suggestion.id} already queued, skipping`);
+        return { success: true, updatedContact };
+      }
+
+      // Add to sync queue
+      syncQueue.addToQueue(
+        contact.contactId,
+        'update',
+        updatedContact.contactData,
+        contact.contactData,
+        undefined
+      );
+
+      // Update local contact store
+      contactStore.saveContact(
+        updatedContact,
+        'manual',
+        undefined,
+        false // Not synced to API yet
+      );
+
+      logger.info(`Queued suggestion ${suggestion.id} for contact ${suggestion.contactId}`);
+      return { success: true, updatedContact };
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error(`Failed to apply suggestion ${suggestion.id}:`, error);
+      logger.error(`Failed to queue suggestion ${suggestion.id}:`, error);
       return { success: false, error: errorMessage };
     }
   }
 
-  private applyValueToContact(contact: Contact, field: string, value: any): Contact {
+  private applyValueToContact(contact: Contact, field: string, value: unknown): Contact {
     const updatedContact = JSON.parse(JSON.stringify(contact)); // Deep clone
-
-    // Parse the field path (e.g., "phoneNumbers[0].value", "name.givenName")
-    const pathParts = field.split('.');
-    let current: any = updatedContact.contactData;
-
-    // Navigate to the parent of the target field
-    for (let i = 0; i < pathParts.length - 1; i++) {
-      const part = pathParts[i];
-      
-      if (part.includes('[') && part.includes(']')) {
-        // Handle array access like "phoneNumbers[0]"
-        const [arrayName, indexStr] = part.split('[');
-        const index = parseInt(indexStr.replace(']', ''));
-        
-        if (!current[arrayName]) {
-          current[arrayName] = [];
-        }
-        
-        // Ensure array has enough elements
-        while (current[arrayName].length <= index) {
-          current[arrayName].push({});
-        }
-        
-        current = current[arrayName][index];
-      } else {
-        if (!current[part]) {
-          current[part] = {};
-        }
-        current = current[part];
-      }
-    }
-
-    // Set the final value
-    const finalPart = pathParts[pathParts.length - 1];
-    if (finalPart.includes('[') && finalPart.includes(']')) {
-      const [arrayName, indexStr] = finalPart.split('[');
-      const index = parseInt(indexStr.replace(']', ''));
-      
-      if (!current[arrayName]) {
-        current[arrayName] = [];
-      }
-      
-      while (current[arrayName].length <= index) {
-        current[arrayName].push({});
-      }
-      
-      current[arrayName][index] = value;
-    } else {
-      current[finalPart] = value;
-    }
-
+    FieldParser.applyFieldPath(updatedContact.contactData as Record<string, unknown>, field, value);
     return updatedContact;
   }
 

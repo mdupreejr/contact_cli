@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { IProgressTracker } from '../types/tools';
 
 export interface ProgressUpdate {
   current: number;
@@ -9,7 +10,7 @@ export interface ProgressUpdate {
   message?: string;
 }
 
-export class ProgressTracker extends EventEmitter {
+export class ProgressTracker extends EventEmitter implements IProgressTracker {
   private current: number = 0;
   private total: number;
   private startTime: number;

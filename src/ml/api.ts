@@ -19,7 +19,24 @@ export async function semanticSearch(q: string, k = 20) {
 }
 
 export async function dedupeSuggestions(top = 50, jsonPath?: string) {
+  const { logger } = require('../utils/logger');
   const all = await listAllContacts(jsonPath);
-  const pairs = blockCandidates(all).map(([a,b]) => scorePair(a,b)).sort((x,y) => y.p - x.p);
-  return pairs.slice(0, top);
+  logger.info(`AI Deduplication analyzing ${all.length} contacts`);
+
+  const candidatePairs = blockCandidates(all);
+  logger.info(`Generated ${candidatePairs.length} candidate pairs from blocking`);
+
+  const scoredPairs = candidatePairs.map(([a,b]) => scorePair(a,b));
+  const sortedPairs = scoredPairs.sort((x,y) => y.p - x.p);
+
+  logger.info(`Found ${sortedPairs.length} total scored pairs`);
+  if (sortedPairs.length > 0) {
+    logger.info(`Top similarity score: ${(sortedPairs[0].p * 100).toFixed(1)}%`);
+    logger.debug(`Comparing contact "${sortedPairs[0].a.name}" with "${sortedPairs[0].b.name}": similarity = ${sortedPairs[0].p}`);
+  }
+
+  const topPairs = sortedPairs.slice(0, top);
+  logger.info(`Returning top ${topPairs.length} duplicate pairs`);
+
+  return topPairs;
 }

@@ -1,5 +1,6 @@
 import { Contact } from '../types/contactsplus';
 import { logger } from './logger';
+import { getDatabase } from '../db/database';
 
 export interface ContactStats {
   total: number;
@@ -94,6 +95,48 @@ export class StatsManager {
 
   constructor() {
     logger.info('Stats manager initialized');
+    this.loadPersistedStats();
+  }
+
+  /**
+   * Load statistics from database on startup
+   */
+  private loadPersistedStats(): void {
+    try {
+      const db = getDatabase();
+
+      // Load API call statistics
+      const apiStats = db.queryOne<{ total: number; successful: number; failed: number }>(
+        'SELECT COUNT(*) as total, SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful, SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed FROM api_calls'
+      );
+
+      if (apiStats) {
+        this.apiCallCount.total = apiStats.total || 0;
+        this.apiCallCount.successful = apiStats.successful || 0;
+        this.apiCallCount.failed = apiStats.failed || 0;
+      }
+
+      // Load last API call timestamp
+      const lastCall = db.queryOne<{ timestamp: string }>(
+        'SELECT timestamp FROM api_calls ORDER BY timestamp DESC LIMIT 1'
+      );
+      if (lastCall) {
+        this.apiCallCount.lastCall = new Date(lastCall.timestamp);
+      }
+
+      // Load contact view count
+      const viewCount = db.queryOne<{ count: number }>(
+        'SELECT COUNT(*) as count FROM contact_views'
+      );
+      if (viewCount) {
+        this.userActions.contactsViewed = viewCount.count || 0;
+      }
+
+      logger.info(`Loaded persisted stats: ${this.apiCallCount.total} API calls, ${this.userActions.contactsViewed} contact views`);
+    } catch (error) {
+      logger.error('Failed to load persisted statistics:', error);
+      // Continue with default values
+    }
   }
 
   setContacts(contacts: Contact[]): void {
@@ -102,7 +145,7 @@ export class StatsManager {
   }
 
   // API call tracking
-  recordApiCall(success: boolean): void {
+  recordApiCall(success: boolean, endpoint?: string): void {
     this.apiCallCount.total++;
     this.apiCallCount.lastCall = new Date();
     if (success) {
@@ -110,11 +153,33 @@ export class StatsManager {
     } else {
       this.apiCallCount.failed++;
     }
+
+    // Persist to database
+    try {
+      const db = getDatabase();
+      db.execute(
+        'INSERT INTO api_calls (endpoint, success, timestamp) VALUES (?, ?, datetime(\'now\'))',
+        [endpoint || 'unknown', success ? 1 : 0]
+      );
+    } catch (error) {
+      logger.error('Failed to persist API call to database:', error);
+    }
   }
 
   // User action tracking
-  recordContactView(): void {
+  recordContactView(contactId?: string): void {
     this.userActions.contactsViewed++;
+
+    // Persist to database
+    try {
+      const db = getDatabase();
+      db.execute(
+        'INSERT INTO contact_views (contact_id, timestamp) VALUES (?, datetime(\'now\'))',
+        [contactId || 'unknown']
+      );
+    } catch (error) {
+      logger.error('Failed to persist contact view to database:', error);
+    }
   }
 
   recordSearch(): void {
@@ -224,9 +289,10 @@ export class StatsManager {
   }
 
   private countContactsWithPhotos(): number {
-    // Note: ContactsPlus API doesn't include photos in the current schema
-    // This is a placeholder for future implementation
-    return 0;
+    return this.contacts.filter(contact => {
+      const photoField = (contact.contactData as any)?.photos;
+      return photoField && Array.isArray(photoField) && photoField.length > 0;
+    }).length;
   }
 
   private countCompanyContacts(): number {

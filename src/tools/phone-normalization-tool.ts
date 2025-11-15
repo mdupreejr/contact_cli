@@ -35,17 +35,28 @@ export class PhoneNormalizationTool extends BaseTool {
 
       try {
         const result = await this.analyzePhoneNumber(phoneNumber.value);
-        
-        if (result.normalizedNumber && result.normalizedNumber !== phoneNumber.value) {
-          const suggestion = this.createSuggestion(
-            contact.contactId,
-            `phoneNumbers[${i}].value`,
-            phoneNumber.value,
-            result.normalizedNumber,
-            this.createRationale(result, phoneNumber.value)
-          );
-          
-          suggestions.push(suggestion);
+
+        // Only create suggestion if there's a meaningful change
+        // Skip if the phone number is already in the normalized format
+        if (result.isValid && result.normalizedNumber) {
+          // Normalize both the original and the suggested value to compare them
+          // This handles cases where the original might have different formatting
+          // but is semantically the same (e.g., "+1 555 123 4567" vs "+1 5551234567")
+          const cleanOriginal = phoneNumber.value.replace(/[\s\-\(\)\[\]\.]/g, '');
+          const cleanNormalized = result.normalizedNumber.replace(/[\s\-\(\)\[\]\.]/g, '');
+
+          // Only suggest if the cleaned versions are different
+          if (cleanOriginal !== cleanNormalized) {
+            const suggestion = this.createSuggestion(
+              contact.contactId,
+              `phoneNumbers[${i}].value`,
+              phoneNumber.value,
+              result.normalizedNumber,
+              this.createRationale(result, phoneNumber.value)
+            );
+
+            suggestions.push(suggestion);
+          }
         }
       } catch (error) {
         logger.error(`Failed to analyze phone number ${phoneNumber.value}:`, error);
@@ -89,10 +100,21 @@ export class PhoneNormalizationTool extends BaseTool {
 
   private cleanPhoneNumber(phoneNumber: string): string {
     // Remove common formatting characters but preserve + at the beginning
-    return phoneNumber
+    let cleaned = phoneNumber
       .replace(/[\s\-\(\)\[\]\.]/g, '')  // Remove spaces, dashes, parentheses, brackets, dots
       .replace(/^(\+)(.*)/, '$1$2')      // Preserve + prefix
       .trim();
+
+    // Replace "001" prefix with "+1" (international dialing code)
+    if (cleaned.startsWith('001')) {
+      cleaned = '+1' + cleaned.substring(3);
+    }
+    // Replace "01" prefix with "+1" (common typo)
+    else if (cleaned.startsWith('01') && cleaned.length === 12) { // 01 + 10 digits
+      cleaned = '+1' + cleaned.substring(2);
+    }
+
+    return cleaned;
   }
 
   private tryParsePhoneNumber(
@@ -264,7 +286,7 @@ export class PhoneNormalizationTool extends BaseTool {
            this.isLikely10DigitUS(phoneNumber);
   }
 
-  private calculateConfidence(original: string, parsed: any): number {
+  private calculateConfidence(original: string, parsed: { country?: string; valid?: boolean }): number {
     let confidence = 0.8; // Base confidence
 
     // Higher confidence if it was already in international format

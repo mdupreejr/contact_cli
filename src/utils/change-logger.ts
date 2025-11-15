@@ -4,18 +4,22 @@ import * as crypto from 'crypto-js';
 import { ChangeLogEntry, ToolSuggestion, ToolMetrics } from '../types/tools';
 import { Contact } from '../types/contactsplus';
 import { logger } from './logger';
+import { CircularBuffer } from './circular-buffer';
+import { logRotation } from './log-rotation';
 
 export class ChangeLogger {
   private logFilePath: string;
   private metricsFilePath: string;
-  private logBuffer: ChangeLogEntry[] = [];
+  private logBuffer: CircularBuffer<ChangeLogEntry>;
   private metricsCache: Map<string, ToolMetrics> = new Map();
+  private readonly MAX_LOG_BUFFER_SIZE = 1000;
 
   constructor() {
     const homeDir = process.env.HOME || process.env.USERPROFILE || '/tmp';
     const logDir = path.join(homeDir, '.contactsplus', 'logs');
     this.logFilePath = path.join(logDir, 'changes.jsonl');
     this.metricsFilePath = path.join(logDir, 'metrics.json');
+    this.logBuffer = new CircularBuffer<ChangeLogEntry>(this.MAX_LOG_BUFFER_SIZE);
     this.ensureLogDirectoryExists();
     this.loadMetrics();
   }
@@ -65,19 +69,19 @@ export class ChangeLogger {
   async logDecision(
     logEntryId: string,
     decision: 'approved' | 'rejected' | 'modified',
-    appliedValue?: any
+    appliedValue?: unknown
   ): Promise<void> {
-    const logEntry = this.logBuffer.find(entry => entry.id === logEntryId);
+    const logEntry = this.logBuffer.filter(entry => entry.id === logEntryId)[0];
     if (logEntry) {
       logEntry.userDecision = decision;
       logEntry.decisionTimestamp = new Date().toISOString();
       if (appliedValue !== undefined) {
         logEntry.appliedValue = appliedValue;
       }
-      
+
       await this.persistLog(logEntry);
       this.updateMetrics(logEntry);
-      
+
       logger.info(`User ${decision} suggestion ${logEntryId} for ${logEntry.toolName}`);
     }
   }
@@ -163,19 +167,35 @@ export class ChangeLogger {
   async clearOldLogs(olderThanDays: number): Promise<number> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
-    
+
     const allLogs = await this.loadAllLogs();
-    const logsToKeep = allLogs.filter(entry => 
+    const logsToKeep = allLogs.filter(entry =>
       new Date(entry.timestamp) >= cutoffDate
     );
-    
+
     const removedCount = allLogs.length - logsToKeep.length;
-    
+
     // Rewrite the log file with only recent logs
     await this.rewriteLogFile(logsToKeep);
-    
+
+    // Also clean up old rotated log files
+    await logRotation.cleanup(this.logFilePath);
+
     logger.info(`Cleared ${removedCount} old log entries`);
     return removedCount;
+  }
+
+  /**
+   * Perform periodic cleanup of old data
+   */
+  async performPeriodicCleanup(): Promise<void> {
+    // Clear logs older than 90 days
+    await this.clearOldLogs(90);
+
+    // Clean up in-memory buffer if it's full
+    if (this.logBuffer.isFull()) {
+      logger.debug('Log buffer is full, oldest entries will be overwritten');
+    }
   }
 
   private generateLogId(): string {
@@ -190,6 +210,9 @@ export class ChangeLogger {
 
   private async persistLog(logEntry: ChangeLogEntry): Promise<void> {
     try {
+      // Check if log file needs rotation before appending
+      await logRotation.rotateIfNeeded(this.logFilePath);
+
       const logLine = JSON.stringify(logEntry) + '\n';
       await fs.appendFile(this.logFilePath, logLine, 'utf8');
     } catch (error) {

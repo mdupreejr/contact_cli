@@ -24,6 +24,14 @@ export function scorePair(a: ContactLite, b: ContactLite): PairScore {
   const x = [1, nameSim, emailEq, phoneEq, companySim, cityEq, emailDomainEq];
   const z = x.reduce((s, v, i) => s + v * W[i], 0);
   const p = 1 / (1 + Math.exp(-z));
+
+  // Add debug logging for high similarity scores
+  const { logger } = require('../utils/logger');
+  if (p > 0.5) {
+    logger.debug(`High similarity pair: "${a.name}" vs "${b.name}" (score: ${(p * 100).toFixed(1)}%)`);
+    logger.debug(`  Features: nameSim=${nameSim.toFixed(3)}, emailEq=${emailEq}, phoneEq=${phoneEq}, companySim=${companySim.toFixed(3)}, cityEq=${cityEq}, emailDomainEq=${emailDomainEq}`);
+  }
+
   return { a, b, p, features: x };
 }
 

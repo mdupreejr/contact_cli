@@ -1,4 +1,4 @@
-import { dedupeSuggestions } from './api';
+import { dedupeSuggestions } from '../ml/api';
 
 const jsonPath = process.argv[2]; // optional fallback JSON
 dedupeSuggestions(25, jsonPath).then(list => {

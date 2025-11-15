@@ -37,14 +37,23 @@ export class FileBrowser {
           // Go up one directory
           this.currentPath = path.dirname(this.currentPath);
           this.refreshFileList();
-        } else if (fs.statSync(itemPath).isDirectory()) {
-          // Enter directory
-          this.currentPath = itemPath;
-          this.refreshFileList();
         } else {
-          // File selected
-          this.hide();
-          resolve(itemPath);
+          try {
+            const stats = fs.statSync(itemPath);
+            if (stats.isDirectory()) {
+              // Enter directory
+              this.currentPath = itemPath;
+              this.refreshFileList();
+            } else {
+              // File selected
+              this.hide();
+              resolve(itemPath);
+            }
+          } catch (error) {
+            // Handle file access errors gracefully
+            console.error('Error accessing path:', error);
+            this.refreshFileList();
+          }
         }
       });
     });

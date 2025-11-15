@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
+import { logger } from '../utils/logger';
 
 const FEEDBACK_DB_PATH = process.env.ML_FEEDBACK_DB || path.join(process.cwd(), 'data', 'ml-feedback.sqlite');
 
@@ -162,9 +163,9 @@ export function closeFeedbackDB(): void {
   if (db) {
     try {
       db.close();
-      console.log('[feedback-store] Database connection closed');
+      logger.info('[feedback-store] Database connection closed');
     } catch (error) {
-      console.error('[feedback-store] Failed to close database:', error);
+      logger.error('[feedback-store] Failed to close database:', error);
     } finally {
       db = null;
     }

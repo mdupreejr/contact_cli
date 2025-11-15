@@ -1,9 +1,9 @@
-import { pipeline } from '@huggingface/transformers';
+import { pipeline, FeatureExtractionPipeline } from '@huggingface/transformers';
 
-let extractor: any;
+let extractor: FeatureExtractionPipeline | null = null;
 export async function embed(text: string): Promise<Float32Array> {
   if (!extractor) {
-    extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2') as FeatureExtractionPipeline;
   }
   const out = await extractor(text, { pooling: 'mean', normalize: true });
   return out.data as Float32Array; // 384-dim
