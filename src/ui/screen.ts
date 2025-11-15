@@ -109,13 +109,14 @@ export class Screen {
     this.screen.append(this.contactList);
 
     // Set up standardized list navigation with automatic detail loading
+    // Disable vim keys since the list already has vi:true which handles j/k navigation
     this.contactListNavigator = new ListNavigator({
       element: this.contactList,
       onSelectionChange: (index) => {
         this.selectedContactIndex = index;
         this.showContactDetail();
       },
-      enableVimKeys: true,
+      enableVimKeys: false,
       pageSize: 10,
     });
   }
@@ -539,15 +540,13 @@ export class Screen {
     } else {
       const items = this.filteredContacts.map(contact => this.getContactDisplayName(contact));
       this.contactList.setItems(items);
-      this.contactList.select(0);
 
       // Update the navigator with the new item count
+      // setIndex(0) will handle both selection and detail display via callback
       if (this.contactListNavigator) {
         this.contactListNavigator.setItemCount(this.filteredContacts.length);
         this.contactListNavigator.setIndex(0);
       }
-
-      this.showContactDetail(); // Show details of first contact
     }
     this.screen.render();
   }

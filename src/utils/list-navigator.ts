@@ -33,6 +33,8 @@ export class ListNavigator {
   private enableVimKeys: boolean;
   private currentIndex = 0;
   private itemCount = 0;
+  private keyHandlers: Array<{ keys: string[]; handler: () => void }> = [];
+  private isProcessingSelection = false;
 
   constructor(options: ListNavigationOptions) {
     this.element = options.element;
@@ -49,38 +51,45 @@ export class ListNavigator {
    * Set up standard keyboard handlers for list navigation
    */
   private setupKeyHandlers(): void {
+    const registerKey = (keys: string[], handler: () => void) => {
+      this.element.key(keys, handler);
+      this.keyHandlers.push({ keys, handler });
+    };
+
     // Arrow keys
-    this.element.key(['up'], () => this.moveUp());
-    this.element.key(['down'], () => this.moveDown());
+    registerKey(['up'], () => this.moveUp());
+    registerKey(['down'], () => this.moveDown());
 
     // Vim keys (if enabled)
     if (this.enableVimKeys) {
-      this.element.key(['k', 'K'], () => this.moveUp());
-      this.element.key(['j', 'J'], () => this.moveDown());
+      registerKey(['k', 'K'], () => this.moveUp());
+      registerKey(['j', 'J'], () => this.moveDown());
     }
 
     // Page navigation
-    this.element.key(['pageup'], () => this.pageUp());
-    this.element.key(['pagedown'], () => this.pageDown());
+    registerKey(['pageup'], () => this.pageUp());
+    registerKey(['pagedown'], () => this.pageDown());
 
     // Home/End
-    this.element.key(['home', 'g'], () => this.moveToStart());
-    this.element.key(['end', 'G'], () => this.moveToEnd());
+    registerKey(['home', 'g'], () => this.moveToStart());
+    registerKey(['end', 'G'], () => this.moveToEnd());
 
     // Enter to activate
     if (this.onActivate) {
-      this.element.key(['enter'], () => {
-        if (this.onActivate) {
-          this.onActivate(this.currentIndex);
-        }
+      registerKey(['enter'], () => {
+        this.onActivate!(this.currentIndex);
       });
     }
 
     // For blessed lists, also listen to the select event
+    // Use flag to prevent duplicate callbacks when both key and select events fire
     if (this.isList(this.element)) {
       this.element.on('select', () => {
-        this.currentIndex = (this.element as any).selected || 0;
-        this.notifySelectionChange();
+        // Only process if not already processing a key-driven selection
+        if (!this.isProcessingSelection) {
+          this.currentIndex = (this.element as any).selected || 0;
+          this.notifySelectionChange();
+        }
       });
     }
   }
@@ -156,6 +165,7 @@ export class ListNavigator {
     if (index < 0 || index >= this.itemCount) return;
 
     this.currentIndex = index;
+    this.isProcessingSelection = true;
 
     // Update the blessed element
     if (this.isList(this.element)) {
@@ -163,6 +173,11 @@ export class ListNavigator {
     }
 
     this.notifySelectionChange();
+
+    // Reset flag after a short delay to allow event processing
+    setImmediate(() => {
+      this.isProcessingSelection = false;
+    });
   }
 
   /**
@@ -178,9 +193,11 @@ export class ListNavigator {
   setItemCount(count: number): void {
     this.itemCount = count;
 
-    // Ensure current index is still valid
-    if (this.currentIndex >= count) {
-      this.currentIndex = Math.max(0, count - 1);
+    // Ensure current index is still valid, using setIndex to trigger UI updates
+    if (this.currentIndex >= count && count > 0) {
+      this.setIndex(count - 1);
+    } else if (count === 0) {
+      this.currentIndex = 0;
     }
   }
 
@@ -197,10 +214,10 @@ export class ListNavigator {
   }
 
   /**
-   * Go back to the previous item
+   * Advance to the previous item
    * Returns true if moved to previous item, false if at the beginning
    */
-  goToPrevious(): boolean {
+  advanceToPrevious(): boolean {
     if (this.currentIndex > 0) {
       this.setIndex(this.currentIndex - 1);
       return true;
@@ -230,11 +247,15 @@ export class ListNavigator {
   }
 
   /**
-   * Destroy and cleanup
+   * Destroy and cleanup all key handlers
+   * Call this before removing the element from the screen to prevent memory leaks
    */
   destroy(): void {
-    // Remove all key handlers - blessed handles this automatically
-    // when the element is removed from the screen
+    // Remove all registered key handlers
+    this.keyHandlers.forEach(({ keys, handler }) => {
+      this.element.unkey(keys, handler);
+    });
+    this.keyHandlers = [];
   }
 }
 
