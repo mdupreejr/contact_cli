@@ -6,6 +6,7 @@ import { LoggingScreen } from './logging-screen';
 import { StatsScreen } from './stats-screen';
 import { SettingsScreen } from './settings-screen';
 import { StatsManager } from '../utils/stats-manager';
+import { ListNavigator } from '../utils/list-navigator';
 
 export class Screen {
   private screen: blessed.Widgets.Screen;
@@ -23,6 +24,7 @@ export class Screen {
   private statsScreen: StatsScreen;
   private settingsScreen: SettingsScreen;
   private statsManager: StatsManager;
+  private contactListNavigator?: ListNavigator;
 
   constructor(contactsApi: ContactsApi) {
     this.screen = blessed.screen({
@@ -105,6 +107,17 @@ export class Screen {
     });
 
     this.screen.append(this.contactList);
+
+    // Set up standardized list navigation with automatic detail loading
+    this.contactListNavigator = new ListNavigator({
+      element: this.contactList,
+      onSelectionChange: (index) => {
+        this.selectedContactIndex = index;
+        this.showContactDetail();
+      },
+      enableVimKeys: true,
+      pageSize: 10,
+    });
   }
 
   private createContactDetail(): void {
@@ -140,7 +153,7 @@ export class Screen {
       left: 0,
       width: '100%',
       height: 3,
-      content: ' {cyan-fg}↑↓{/cyan-fg}: Navigate/View | {cyan-fg}/{/cyan-fg}: Search | {cyan-fg}t{/cyan-fg}: Tools | {cyan-fg}s{/cyan-fg}: Stats | {cyan-fg}l{/cyan-fg}: Logs | {cyan-fg}p{/cyan-fg}: Settings | {cyan-fg}r{/cyan-fg}: Refresh | {cyan-fg}q{/cyan-fg}: Quit',
+      content: ' {cyan-fg}↑↓/j/k{/cyan-fg}: Navigate | {cyan-fg}PgUp/PgDn{/cyan-fg}: Page | {cyan-fg}/{/cyan-fg}: Search | {cyan-fg}t{/cyan-fg}: Tools | {cyan-fg}s{/cyan-fg}: Stats | {cyan-fg}l{/cyan-fg}: Logs | {cyan-fg}p{/cyan-fg}: Settings | {cyan-fg}r{/cyan-fg}: Refresh | {cyan-fg}q{/cyan-fg}: Quit',
       style: {
         fg: 'white',
         bg: 'black',
@@ -520,10 +533,20 @@ export class Screen {
     if (this.filteredContacts.length === 0) {
       this.contactList.setItems(['No contacts found']);
       this.contactDetail.setContent('No contacts to display.\n\nTry refreshing with {cyan-fg}r{/cyan-fg} or check your search query.');
+      if (this.contactListNavigator) {
+        this.contactListNavigator.setItemCount(0);
+      }
     } else {
       const items = this.filteredContacts.map(contact => this.getContactDisplayName(contact));
       this.contactList.setItems(items);
       this.contactList.select(0);
+
+      // Update the navigator with the new item count
+      if (this.contactListNavigator) {
+        this.contactListNavigator.setItemCount(this.filteredContacts.length);
+        this.contactListNavigator.setIndex(0);
+      }
+
       this.showContactDetail(); // Show details of first contact
     }
     this.screen.render();
