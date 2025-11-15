@@ -1,6 +1,7 @@
 import * as blessed from 'blessed';
 import { ToolSuggestion, SuggestionRationale } from '../types/tools';
 import { SuggestionManager, SuggestionBatch } from '../utils/suggestion-manager';
+import { ListNavigator } from '../utils/list-navigator';
 
 export class SuggestionViewer {
   private screen: blessed.Widgets.Screen;
@@ -8,11 +9,16 @@ export class SuggestionViewer {
   private container: blessed.Widgets.BoxElement;
   private titleBox: blessed.Widgets.BoxElement;
   private progressBox: blessed.Widgets.BoxElement;
-  private suggestionBox: blessed.Widgets.BoxElement;
+  private suggestionList: blessed.Widgets.ListElement;
+  private detailBox: blessed.Widgets.BoxElement;
   private rationaleBox: blessed.Widgets.BoxElement;
   private actionBox: blessed.Widgets.BoxElement;
   private isVisible = false;
   private currentBatchId?: string;
+  private onComplete?: (batchId: string, summary: any) => void;
+  private listNavigator?: ListNavigator;
+  private suggestions: ToolSuggestion[] = [];
+  private selectedIndex = 0;
   private onComplete?: (batchId: string, summary: Record<string, unknown>) => void;
 
   constructor(screen: blessed.Widgets.Screen, suggestionManager: SuggestionManager) {
@@ -39,7 +45,7 @@ export class SuggestionViewer {
       },
       hidden: true,
       tags: true,
-      label: ' {bold}{cyan-fg}Suggestion Review{/cyan-fg}{/bold} ',
+      label: ' {bold}{cyan-fg}Sync Queue Manager{/cyan-fg}{/bold} ',
     });
 
     this.titleBox = blessed.box({
@@ -71,30 +77,62 @@ export class SuggestionViewer {
       tags: true,
     });
 
-    this.suggestionBox = blessed.box({
+    // List of suggestions on the left (40% width)
+    this.suggestionList = blessed.list({
       top: 6,
       left: 0,
-      width: '100%',
-      height: '60%-6',
+      width: '40%',
+      height: '100%-12',
+      border: {
+        type: 'line',
+      },
+      style: {
+        fg: 'white',
+        selected: {
+          bg: 'blue',
+          fg: 'white',
+        },
+        border: {
+          fg: 'yellow',
+        },
+      },
+      keys: true,
+      vi: true,
+      mouse: true,
+      scrollable: true,
+      alwaysScroll: true,
+      tags: true,
+      label: ' Suggestions ',
+    });
+
+    // Detail box on the right (60% width)
+    this.detailBox = blessed.box({
+      top: 6,
+      left: '40%',
+      width: '60%',
+      height: '50%-6',
       border: {
         type: 'line',
       },
       style: {
         border: {
-          fg: 'yellow',
+          fg: 'cyan',
         },
       },
       scrollable: true,
       alwaysScroll: true,
+      keys: true,
+      vi: true,
+      mouse: true,
       tags: true,
       label: ' Suggested Change ',
     });
 
     this.rationaleBox = blessed.box({
-      top: '60%',
-      left: 0,
-      width: '100%',
-      height: '35%-3',
+      top: '50%',
+      left: '40%',
+      width: '60%',
+      height: '45%-6',
       border: {
         type: 'line',
       },
@@ -105,6 +143,9 @@ export class SuggestionViewer {
       },
       scrollable: true,
       alwaysScroll: true,
+      keys: true,
+      vi: true,
+      mouse: true,
       tags: true,
       label: ' Reasoning & Rationale ',
     });
@@ -125,7 +166,7 @@ export class SuggestionViewer {
       tags: true,
       label: ' Actions ',
       content: `{center}{bold}
-[A] Accept  [R] Reject  [M] Modify  [S] Skip  [←/P] Previous  [→/N] Next
+[A] Accept  [R] Reject  [M] Modify  [S] Skip  [↑↓/j/k] Navigate  [PgUp/PgDn] Page
 [C] Cancel All  [ESC] Exit
 {/bold}{/center}`,
     });
@@ -133,7 +174,8 @@ export class SuggestionViewer {
     // Add all components to container
     this.container.append(this.titleBox);
     this.container.append(this.progressBox);
-    this.container.append(this.suggestionBox);
+    this.container.append(this.suggestionList);
+    this.container.append(this.detailBox);
     this.container.append(this.rationaleBox);
     this.container.append(this.actionBox);
 
@@ -142,22 +184,28 @@ export class SuggestionViewer {
   }
 
   private setupKeyHandling(): void {
-    this.container.key(['a', 'A'], () => this.handleDecision('approve'));
-    this.container.key(['r', 'R'], () => this.handleDecision('reject'));
+    // Approve/Reject handlers that auto-advance
+    this.container.key(['a', 'A'], async () => {
+      await this.handleDecision('approve');
+    });
+
+    this.container.key(['r', 'R'], async () => {
+      await this.handleDecision('reject');
+    });
+
     this.container.key(['m', 'M'], () => this.handleModify());
-    this.container.key(['s', 'S'], () => this.handleDecision('skip'));
+    this.container.key(['s', 'S'], async () => {
+      await this.handleDecision('skip');
+    });
+
     this.container.key(['c', 'C'], () => this.handleCancel());
     this.container.key(['escape', 'q'], () => this.hide());
 
-    // Navigation keys for scrolling within boxes
-    this.container.key(['up', 'down'], () => {
-      // Allow scrolling in suggestion and rationale boxes
-      this.suggestionBox.focus();
+    // Let the list handle navigation naturally
+    this.suggestionList.on('select', () => {
+      this.selectedIndex = (this.suggestionList as any).selected || 0;
+      this.showSuggestionDetail();
     });
-
-    // Navigation to manually move between suggestions
-    this.container.key(['left', 'p'], () => this.navigateToPrevious());
-    this.container.key(['right', 'n'], () => this.navigateToNext());
   }
 
   async show(batchId: string, onComplete?: (batchId: string, summary: Record<string, unknown>) => void): Promise<void> {
@@ -175,7 +223,34 @@ export class SuggestionViewer {
     }
 
     this.isVisible = true;
+
+    const batch = this.suggestionManager.getBatch(batchId);
+    if (!batch) {
+      this.hide();
+      return;
+    }
+
+    this.suggestions = batch.suggestions;
+    this.selectedIndex = batch.currentIndex;
+
     this.container.show();
+    this.updateDisplay();
+
+    // Set up list navigator for consistent navigation
+    this.listNavigator = new ListNavigator({
+      element: this.suggestionList,
+      onSelectionChange: (index) => {
+        this.selectedIndex = index;
+        this.showSuggestionDetail();
+      },
+      enableVimKeys: true,
+      pageSize: 10,
+    });
+
+    this.listNavigator.setItemCount(this.suggestions.length);
+    this.listNavigator.setIndex(this.selectedIndex);
+
+    this.suggestionList.focus();
     this.container.focus();
 
     await this.updateDisplay();
@@ -185,6 +260,10 @@ export class SuggestionViewer {
   hide(): void {
     this.isVisible = false;
     this.container.hide();
+    if (this.listNavigator) {
+      this.listNavigator.destroy();
+      this.listNavigator = undefined;
+    }
     this.screen.render();
   }
 
@@ -192,7 +271,7 @@ export class SuggestionViewer {
     return this.isVisible;
   }
 
-  private async updateDisplay(): Promise<void> {
+  private updateDisplay(): void {
     if (!this.currentBatchId) return;
 
     const batch = this.suggestionManager.getBatch(this.currentBatchId);
@@ -213,19 +292,69 @@ export class SuggestionViewer {
     this.titleBox.setContent(`{center}{bold}${batch.toolName} - Contact ${batch.contactId}{/bold}{/center}`);
 
     // Update progress
-    this.progressBox.setContent(
-      `{center}Progress: {bold}{green-fg}${progress.current}/${progress.total}{/green-fg}{/bold} (${progress.percentage}%){/center}`
-    );
+    const progress = this.suggestionManager.getBatchProgress(this.currentBatchId);
+    if (progress) {
+      const completed = batch.results.filter(r => r.decision !== 'pending').length;
+      const approved = batch.results.filter(r => r.decision === 'approved').length;
+      const rejected = batch.results.filter(r => r.decision === 'rejected').length;
 
-    // Update suggestion display
-    this.displaySuggestion(suggestion);
+      this.progressBox.setContent(
+        `{center}Total: {bold}{white-fg}${progress.total}{/white-fg}{/bold} | ` +
+        `Reviewed: {bold}{cyan-fg}${completed}/${progress.total}{/cyan-fg}{/bold} | ` +
+        `Approved: {bold}{green-fg}${approved}{/green-fg}{/bold} | ` +
+        `Rejected: {bold}{red-fg}${rejected}{/red-fg}{/bold}{/center}`
+      );
+    }
 
-    // Update rationale display
-    this.displayRationale(suggestion.rationale);
+    // Update suggestion list
+    this.updateSuggestionList();
+
+    // Show details of selected suggestion
+    this.showSuggestionDetail();
 
     this.screen.render();
   }
 
+  private updateSuggestionList(): void {
+    if (!this.currentBatchId) return;
+
+    const batch = this.suggestionManager.getBatch(this.currentBatchId);
+    if (!batch) return;
+
+    const items = batch.suggestions.map((suggestion, index) => {
+      const result = batch.results[index];
+      let statusIcon = '{yellow-fg}○{/yellow-fg}'; // Pending
+
+      if (result.decision === 'approved') {
+        statusIcon = '{green-fg}✓{/green-fg}';
+      } else if (result.decision === 'rejected') {
+        statusIcon = '{red-fg}✗{/red-fg}';
+      } else if (result.decision === 'modified') {
+        statusIcon = '{blue-fg}◉{/blue-fg}';
+      }
+
+      const fieldName = suggestion.field.split('.').pop() || suggestion.field;
+      return `${statusIcon} ${fieldName}: ${this.truncateValue(suggestion.suggestedValue)}`;
+    });
+
+    this.suggestionList.setItems(items);
+    this.suggestionList.select(this.selectedIndex);
+  }
+
+  private truncateValue(value: any): string {
+    const str = typeof value === 'string' ? value : JSON.stringify(value);
+    return str.length > 30 ? str.substring(0, 30) + '...' : str;
+  }
+
+  private showSuggestionDetail(): void {
+    if (this.selectedIndex < 0 || this.selectedIndex >= this.suggestions.length) {
+      return;
+    }
+
+    const suggestion = this.suggestions[this.selectedIndex];
+
+    // Update detail box
+    const content = `{bold}{yellow-fg}Field:{/yellow-fg}{/bold} ${suggestion.field}
   /**
    * Escape blessed.js special characters to prevent rendering issues.
    * Uses blessed.js official escape() function to convert tags like {bold}
@@ -251,7 +380,12 @@ ${this.formatValue(suggestion.suggestedValue)}
 
 {bold}{cyan-fg}Timestamp:{/cyan-fg}{/bold} ${new Date(suggestion.timestamp).toLocaleString()}`;
 
-    this.suggestionBox.setContent(content);
+    this.detailBox.setContent(content);
+
+    // Update rationale box
+    this.displayRationale(suggestion.rationale);
+
+    this.screen.render();
   }
 
   private displayRationale(rationale: SuggestionRationale): void {
@@ -294,23 +428,61 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
       return;
     }
 
+    // Update the list to show the new status
+    this.updateSuggestionList();
+
     if (result.completed) {
       await this.handleBatchComplete();
     } else {
-      // Automatically advance to the next suggestion and load its details
-      await this.updateDisplay();
+      // Automatically advance to the next pending suggestion
+      const nextIndex = this.findNextPendingSuggestion();
+      if (nextIndex !== -1) {
+        this.selectedIndex = nextIndex;
+        if (this.listNavigator) {
+          this.listNavigator.setIndex(nextIndex);
+        } else {
+          this.suggestionList.select(nextIndex);
+        }
+        this.showSuggestionDetail();
+      }
 
-      // Ensure the container is focused for keyboard input
-      this.container.focus();
+      // Update progress display
+      this.updateDisplay();
+
+      // Ensure the list is focused for keyboard input
+      this.suggestionList.focus();
       this.screen.render();
     }
   }
 
+  private findNextPendingSuggestion(): number {
+    if (!this.currentBatchId) return -1;
+
+    const batch = this.suggestionManager.getBatch(this.currentBatchId);
+    if (!batch) return -1;
+
+    // Start from current position and find next pending
+    for (let i = this.selectedIndex; i < batch.results.length; i++) {
+      if (batch.results[i].decision === 'pending') {
+        return i;
+      }
+    }
+
+    // If no pending found ahead, check from beginning
+    for (let i = 0; i < this.selectedIndex; i++) {
+      if (batch.results[i].decision === 'pending') {
+        return i;
+      }
+    }
+
+    return -1; // No pending suggestions found
+  }
+
   private async handleModify(): Promise<void> {
     if (!this.currentBatchId) return;
+    if (this.selectedIndex < 0 || this.selectedIndex >= this.suggestions.length) return;
 
-    const suggestion = this.suggestionManager.getCurrentSuggestion(this.currentBatchId);
-    if (!suggestion) return;
+    const suggestion = this.suggestions[this.selectedIndex];
 
     // Create a simple input dialog
     const modifyDialog = blessed.box({
@@ -372,6 +544,7 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
     inputBox.on('submit', async (value: string) => {
       this.screen.remove(modifyDialog);
 
+      let modifiedValue: any = value;
       let modifiedValue: unknown = value;
 
       // Try to parse as JSON if it looks like JSON
@@ -384,26 +557,43 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
       }
 
       const result = await this.suggestionManager.processDecision(
-        this.currentBatchId!, 
-        'modify', 
+        this.currentBatchId!,
+        'modify',
         modifiedValue
       );
-      
+
       if (!result.success) {
         this.showError(`Failed to apply modification: ${result.error}`);
         return;
       }
 
+      // Update the list
+      this.updateSuggestionList();
+
       if (result.completed) {
         await this.handleBatchComplete();
       } else {
-        await this.updateDisplay();
+        // Auto-advance to next pending
+        const nextIndex = this.findNextPendingSuggestion();
+        if (nextIndex !== -1) {
+          this.selectedIndex = nextIndex;
+          if (this.listNavigator) {
+            this.listNavigator.setIndex(nextIndex);
+          } else {
+            this.suggestionList.select(nextIndex);
+          }
+          this.showSuggestionDetail();
+        }
+
+        this.updateDisplay();
+        this.suggestionList.focus();
+        this.screen.render();
       }
     });
 
     inputBox.key(['escape'], () => {
       this.screen.remove(modifyDialog);
-      this.container.focus();
+      this.suggestionList.focus();
       this.screen.render();
     });
   }
@@ -419,38 +609,6 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
     if (confirmed) {
       await this.suggestionManager.cancelBatch(this.currentBatchId);
       await this.handleBatchComplete();
-    }
-  }
-
-  private async navigateToNext(): Promise<void> {
-    if (!this.currentBatchId) return;
-
-    const batch = this.suggestionManager.getBatch(this.currentBatchId);
-    if (!batch) return;
-
-    // Check if there's a next suggestion
-    if (batch.currentIndex < batch.suggestions.length - 1) {
-      // Skip to next suggestion without applying changes
-      this.suggestionManager.skipToSuggestion(this.currentBatchId, batch.currentIndex + 1);
-      await this.updateDisplay();
-      this.container.focus();
-      this.screen.render();
-    }
-  }
-
-  private async navigateToPrevious(): Promise<void> {
-    if (!this.currentBatchId) return;
-
-    const batch = this.suggestionManager.getBatch(this.currentBatchId);
-    if (!batch) return;
-
-    // Check if there's a previous suggestion
-    if (batch.currentIndex > 0) {
-      // Go back to previous suggestion
-      this.suggestionManager.skipToSuggestion(this.currentBatchId, batch.currentIndex - 1);
-      await this.updateDisplay();
-      this.container.focus();
-      this.screen.render();
     }
   }
 
@@ -492,7 +650,7 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
 
     errorDialog.once('keypress', () => {
       this.screen.remove(errorDialog);
-      this.container.focus();
+      this.suggestionList.focus();
       this.screen.render();
     });
   }
@@ -539,13 +697,13 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
       dialog.append(messageBox);
       dialog.append(buttonBox);
       this.screen.append(dialog);
-      
+
       dialog.focus();
       this.screen.render();
 
       const cleanup = (result: boolean) => {
         this.screen.remove(dialog);
-        this.container.focus();
+        this.suggestionList.focus();
         this.screen.render();
         resolve(result);
       };
