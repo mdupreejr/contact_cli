@@ -1,4 +1,4 @@
-import { buildIndex } from './api';
+import { buildIndex } from '../ml/api';
 
 const jsonPath = process.argv[2]; // optional fallback JSON
 buildIndex(jsonPath).then(() => {

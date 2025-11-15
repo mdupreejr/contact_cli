@@ -98,7 +98,7 @@ export class ImportHistory {
   ): void {
     try {
       const updates: string[] = [];
-      const params: any[] = [];
+      const params: unknown[] = [];
 
       if (stats.parsedContacts !== undefined) {
         updates.push('parsed_contacts = ?');
@@ -196,7 +196,7 @@ export class ImportHistory {
   getAllImportSessions(limit?: number, offset?: number): ImportSession[] {
     try {
       let sql = 'SELECT * FROM import_history ORDER BY started_at DESC';
-      const params: any[] = [];
+      const params: unknown[] = [];
 
       if (limit !== undefined) {
         sql += ' LIMIT ?';

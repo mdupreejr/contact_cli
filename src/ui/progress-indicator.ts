@@ -1,5 +1,12 @@
 import * as blessed from 'blessed';
 import { ProgressTracker, ProgressUpdate } from '../utils/progress-tracker';
+import {
+  PROGRESS_HIDE_DELAY,
+  PROGRESS_INDICATOR_WIDTH,
+  PROGRESS_INDICATOR_HEIGHT,
+  PERCENTAGE_MIN,
+  PERCENTAGE_MAX,
+} from '../utils/constants';
 
 export class ProgressIndicator {
   private screen: blessed.Widgets.Screen;
@@ -30,7 +37,7 @@ export class ProgressIndicator {
     });
 
     tracker.on('complete', () => {
-      setTimeout(() => this.hide(), 500); // Hide after brief delay
+      setTimeout(() => this.hide(), PROGRESS_HIDE_DELAY); // Hide after brief delay
     });
 
     this.screen.render();
@@ -58,7 +65,7 @@ export class ProgressIndicator {
     }
 
     // Update progress bar
-    const percentage = Math.min(100, Math.max(0, progress.percentage));
+    const percentage = Math.min(PERCENTAGE_MAX, Math.max(PERCENTAGE_MIN, progress.percentage));
     this.progressBar.setProgress(percentage);
 
     // Update status text
@@ -88,7 +95,7 @@ export class ProgressIndicator {
     const progress: ProgressUpdate = {
       current,
       total,
-      percentage: total > 0 ? (current / total) * 100 : 0,
+      percentage: total > 0 ? (current / total) * PERCENTAGE_MAX : 0,
       eta: null,
       rate: 0,
       message,
@@ -142,8 +149,8 @@ export class ProgressIndicator {
       parent: this.screen,
       top: 'center',
       left: 'center',
-      width: 60,
-      height: 11,
+      width: PROGRESS_INDICATOR_WIDTH,
+      height: PROGRESS_INDICATOR_HEIGHT,
       border: {
         type: 'line',
       },

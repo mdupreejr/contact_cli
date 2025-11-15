@@ -170,25 +170,34 @@ export class Screen {
       hidden: true,
       tags: true,
       label: ' Search Contacts ',
+      inputOnFocus: true,
+      keys: true,
+      mouse: true,
     });
 
     this.screen.append(this.searchBox);
+
+    this.searchBox.key(['escape'], () => {
+      this.exitSearchMode();
+    });
   }
 
   private setupKeyHandling(): void {
-    this.contactList.on('select', () => {
+    // Update contact detail when selection changes
+    this.contactList.on('select', (item, index) => {
+      this.selectedContactIndex = index;  // Track selected index
       this.showContactDetail();
+      this.screen.render();
     });
 
-    // Auto-load contact details when navigating with arrow keys
-    this.contactList.key(['up', 'down', 'k', 'j'], () => {
-      // Small delay to let the list selection update
-      setImmediate(() => {
-        this.showContactDetail();
-      });
+    // Add explicit arrow key handlers as backup
+    this.contactList.key(['up', 'down'], () => {
+      this.showContactDetail();
+      this.screen.render();
     });
 
-    this.screen.key(['escape', 'q', 'C-c'], () => {
+    // Escape key - go back one level
+    this.screen.key(['escape'], () => {
       if (this.toolsMenu.isShowing()) {
         this.toolsMenu.hide();
       } else if (this.loggingScreen.isShowing()) {
@@ -197,9 +206,13 @@ export class Screen {
         this.statsScreen.hide();
       } else if (this.isSearchMode) {
         this.exitSearchMode();
-      } else {
-        process.exit(0);
       }
+      // If on main screen, escape does nothing (use 'q' to quit)
+    });
+
+    // Q key and Ctrl-C - quit the app
+    this.screen.key(['q', 'C-c'], () => {
+      process.exit(0);
     });
 
     this.screen.key(['/'], () => {
@@ -215,7 +228,7 @@ export class Screen {
     });
 
     this.screen.key(['s'], () => {
-      if (!this.isSearchMode && !this.toolsMenu.isShowing() && !this.loggingScreen.isShowing()) {
+      if (!this.isSearchMode && !this.toolsMenu.isShowing() && !this.loggingScreen.isShowing() && !this.syncQueueViewer?.isShowing()) {
         this.showStats();
       }
     });
@@ -241,7 +254,6 @@ export class Screen {
 
     this.screen.key(['enter'], () => {
       if (!this.isSearchMode && !this.toolsMenu.isShowing() && !this.loggingScreen.isShowing() && !this.statsScreen.isShowing()) {
-        this.statsManager.recordContactView();
         this.showContactDetail();
       }
     });
@@ -261,6 +273,7 @@ export class Screen {
     this.searchBox.show();
     this.searchBox.focus();
     this.searchBox.setValue('');
+    this.searchBox.readInput();
     this.screen.render();
   }
 
@@ -298,12 +311,15 @@ export class Screen {
   private showContactDetail(): void {
     const selectedIndex = (this.contactList as any).selected || 0;
     const contact = this.filteredContacts[selectedIndex];
-    
+
     if (!contact || this.filteredContacts.length === 0) {
       this.contactDetail.setContent('Select a contact to view details');
       this.screen.render();
       return;
     }
+
+    // Record contact view for statistics
+    this.statsManager.recordContactView(contact.contactId);
 
     const details = this.formatContactDetails(contact);
     this.contactDetail.setContent(details);
@@ -313,58 +329,58 @@ export class Screen {
   private formatContactDetails(contact: Contact): string {
     const name = this.getContactDisplayName(contact);
     const data = contact.contactData || {};
-    
+
     let details = `{bold}{cyan-fg}${name}{/cyan-fg}{/bold}\n\n`;
-    
+
     // Emails
     if (data.emails && data.emails.length > 0) {
       details += '{bold}{yellow-fg}📧 Emails{/yellow-fg}{/bold}\n';
       data.emails.forEach(email => {
-        details += `  {green-fg}${email.type || 'Email'}:{/green-fg} ${email.value}\n`;
+        details += `  {green-fg}${blessed.escape(email.type || 'Email')}:{/green-fg} ${blessed.escape(email.value)}\n`;
       });
       details += '\n';
     }
-    
+
     // Phone numbers
     if (data.phoneNumbers && data.phoneNumbers.length > 0) {
       details += '{bold}{yellow-fg}📞 Phone Numbers{/yellow-fg}{/bold}\n';
       data.phoneNumbers.forEach(phone => {
-        details += `  {green-fg}${phone.type || 'Phone'}:{/green-fg} ${phone.value}\n`;
+        details += `  {green-fg}${blessed.escape(phone.type || 'Phone')}:{/green-fg} ${blessed.escape(phone.value)}\n`;
       });
       details += '\n';
     }
-    
+
     // Organizations
     if (data.organizations && data.organizations.length > 0) {
       details += '{bold}{yellow-fg}🏢 Organizations{/yellow-fg}{/bold}\n';
       data.organizations.forEach(org => {
-        if (org.name) details += `  {green-fg}Company:{/green-fg} ${org.name}\n`;
-        if (org.title) details += `  {green-fg}Title:{/green-fg} ${org.title}\n`;
-        if (org.department) details += `  {green-fg}Department:{/green-fg} ${org.department}\n`;
+        if (org.name) details += `  {green-fg}Company:{/green-fg} ${blessed.escape(org.name)}\n`;
+        if (org.title) details += `  {green-fg}Title:{/green-fg} ${blessed.escape(org.title)}\n`;
+        if (org.department) details += `  {green-fg}Department:{/green-fg} ${blessed.escape(org.department)}\n`;
         details += '\n';
       });
     }
-    
+
     // Addresses
     if (data.addresses && data.addresses.length > 0) {
       details += '{bold}{yellow-fg}🏠 Addresses{/yellow-fg}{/bold}\n';
       data.addresses.forEach(addr => {
-        details += `  {green-fg}${addr.type || 'Address'}:{/green-fg}\n`;
-        if (addr.street) details += `    ${addr.street}\n`;
-        const cityLine = [addr.city, addr.region, addr.postalCode].filter(Boolean).join(' ');
+        details += `  {green-fg}${blessed.escape(addr.type || 'Address')}:{/green-fg}\n`;
+        if (addr.street) details += `    ${blessed.escape(addr.street)}\n`;
+        const cityLine = [addr.city, addr.region, addr.postalCode].filter((s): s is string => Boolean(s)).map(s => blessed.escape(s)).join(' ');
         if (cityLine) details += `    ${cityLine}\n`;
-        if (addr.country) details += `    ${addr.country}\n`;
+        if (addr.country) details += `    ${blessed.escape(addr.country)}\n`;
         details += '\n';
       });
     }
-    
+
     // URLs/Social Media
     if (data.urls && data.urls.length > 0) {
       details += '{bold}{yellow-fg}🌐 URLs & Social Media{/yellow-fg}{/bold}\n';
       data.urls.forEach(url => {
-        details += `  {green-fg}${url.type || 'URL'}:{/green-fg} ${url.value}\n`;
-        if (url.username) details += `    {gray-fg}Username: ${url.username}{/gray-fg}\n`;
-        if (url.userId) details += `    {gray-fg}User ID: ${url.userId}{/gray-fg}\n`;
+        details += `  {green-fg}${blessed.escape(url.type || 'URL')}:{/green-fg} ${blessed.escape(url.value)}\n`;
+        if (url.username) details += `    {gray-fg}Username: ${blessed.escape(url.username)}{/gray-fg}\n`;
+        if (url.userId) details += `    {gray-fg}User ID: ${blessed.escape(url.userId)}{/gray-fg}\n`;
       });
       details += '\n';
     }
@@ -373,7 +389,7 @@ export class Screen {
     if (data.ims && data.ims.length > 0) {
       details += '{bold}{yellow-fg}💬 Instant Messages{/yellow-fg}{/bold}\n';
       data.ims.forEach(im => {
-        details += `  {green-fg}${im.type || 'IM'}:{/green-fg} ${im.value}\n`;
+        details += `  {green-fg}${blessed.escape(im.type || 'IM')}:{/green-fg} ${blessed.escape(im.value)}\n`;
       });
       details += '\n';
     }
@@ -382,7 +398,7 @@ export class Screen {
     if (data.relatedPeople && data.relatedPeople.length > 0) {
       details += '{bold}{yellow-fg}👥 Related People{/yellow-fg}{/bold}\n';
       data.relatedPeople.forEach(person => {
-        details += `  {green-fg}${person.type || 'Relation'}:{/green-fg} ${person.value}\n`;
+        details += `  {green-fg}${blessed.escape(person.type || 'Relation')}:{/green-fg} ${blessed.escape(person.value)}\n`;
       });
       details += '\n';
     }
@@ -393,11 +409,11 @@ export class Screen {
       data.dates.forEach(date => {
         let dateStr = '';
         if (date.month && date.day && date.year) {
-          dateStr = `${date.month}/${date.day}/${date.year}`;
+          dateStr = `${blessed.escape(String(date.month))}/${blessed.escape(String(date.day))}/${blessed.escape(String(date.year))}`;
         } else if (date.month && date.day) {
-          dateStr = `${date.month}/${date.day}`;
+          dateStr = `${blessed.escape(String(date.month))}/${blessed.escape(String(date.day))}`;
         }
-        details += `  {green-fg}${date.type || 'Date'}:{/green-fg} ${dateStr}\n`;
+        details += `  {green-fg}${blessed.escape(date.type || 'Date')}:{/green-fg} ${dateStr}\n`;
       });
       details += '\n';
     }
@@ -407,9 +423,9 @@ export class Screen {
       details += '{bold}{yellow-fg}🎂 Birthday{/yellow-fg}{/bold}\n';
       let birthdayStr = '';
       if (data.birthday.month && data.birthday.day && data.birthday.year) {
-        birthdayStr = `${data.birthday.month}/${data.birthday.day}/${data.birthday.year}`;
+        birthdayStr = `${blessed.escape(String(data.birthday.month))}/${blessed.escape(String(data.birthday.day))}/${blessed.escape(String(data.birthday.year))}`;
       } else if (data.birthday.month && data.birthday.day) {
-        birthdayStr = `${data.birthday.month}/${data.birthday.day}`;
+        birthdayStr = `${blessed.escape(String(data.birthday.month))}/${blessed.escape(String(data.birthday.day))}`;
       }
       details += `  ${birthdayStr}\n\n`;
     }
@@ -418,51 +434,51 @@ export class Screen {
     if (data.items && data.items.length > 0) {
       details += '{bold}{yellow-fg}📋 Additional Information{/yellow-fg}{/bold}\n';
       data.items.forEach(item => {
-        details += `  {green-fg}${item.type || 'Info'}:{/green-fg} ${item.value}\n`;
+        details += `  {green-fg}${blessed.escape(item.type || 'Info')}:{/green-fg} ${blessed.escape(item.value)}\n`;
       });
       details += '\n';
     }
 
     // Notes
     if (data.notes) {
-      details += `{bold}{yellow-fg}📝 Notes{/yellow-fg}{/bold}\n${data.notes}\n\n`;
+      details += `{bold}{yellow-fg}📝 Notes{/yellow-fg}{/bold}\n${blessed.escape(data.notes)}\n\n`;
     }
-    
+
     // Tags (from metadata)
     if (contact.contactMetadata.tagIds && contact.contactMetadata.tagIds.length > 0) {
       details += `{bold}{yellow-fg}🏷️  Tags{/yellow-fg}{/bold}\n`;
-      details += `  {green-fg}Tag IDs:{/green-fg} ${contact.contactMetadata.tagIds.join(', ')}\n\n`;
+      details += `  {green-fg}Tag IDs:{/green-fg} ${contact.contactMetadata.tagIds.map(id => blessed.escape(id)).join(', ')}\n\n`;
     }
 
     // Business Card Status
     if (contact.contactMetadata.businessCardTranscriptionStatus) {
       details += `{bold}{yellow-fg}💳 Business Card{/yellow-fg}{/bold}\n`;
-      details += `  {green-fg}Status:{/green-fg} ${contact.contactMetadata.businessCardTranscriptionStatus}\n\n`;
+      details += `  {green-fg}Status:{/green-fg} ${blessed.escape(contact.contactMetadata.businessCardTranscriptionStatus)}\n\n`;
     }
 
     // Team Information
     if (contact.teamId) {
       details += `{bold}{yellow-fg}👔 Team Information{/yellow-fg}{/bold}\n`;
-      details += `  {green-fg}Team ID:{/green-fg} ${contact.teamId}\n`;
+      details += `  {green-fg}Team ID:{/green-fg} ${blessed.escape(contact.teamId)}\n`;
       if (contact.contactMetadata.ownedBy) {
-        details += `  {green-fg}Owned by:{/green-fg} ${contact.contactMetadata.ownedBy}\n`;
+        details += `  {green-fg}Owned by:{/green-fg} ${blessed.escape(contact.contactMetadata.ownedBy)}\n`;
       }
       if (contact.contactMetadata.sharedBy && contact.contactMetadata.sharedBy.length > 0) {
-        details += `  {green-fg}Shared by:{/green-fg} ${contact.contactMetadata.sharedBy.join(', ')}\n`;
+        details += `  {green-fg}Shared by:{/green-fg} ${contact.contactMetadata.sharedBy.map(id => blessed.escape(id)).join(', ')}\n`;
       }
       details += '\n';
     }
-    
+
     // Metadata
     details += `{bold}{yellow-fg}ℹ️  Contact Info{/yellow-fg}{/bold}\n`;
-    details += `  {green-fg}Contact ID:{/green-fg} ${contact.contactId}\n`;
-    details += `  {green-fg}ETag:{/green-fg} ${contact.etag}\n`;
+    details += `  {green-fg}Contact ID:{/green-fg} ${blessed.escape(contact.contactId)}\n`;
+    details += `  {green-fg}ETag:{/green-fg} ${blessed.escape(contact.etag)}\n`;
     details += `  {green-fg}Created:{/green-fg} ${new Date(contact.created).toLocaleDateString()}\n`;
     details += `  {green-fg}Updated:{/green-fg} ${new Date(contact.updated).toLocaleDateString()}\n`;
     if (contact.contactMetadata.companyContact) {
       details += `  {green-fg}Company Contact:{/green-fg} Yes\n`;
     }
-    
+
     return details;
   }
 
@@ -472,25 +488,25 @@ export class Screen {
       const parts = [name.prefix, name.givenName, name.middleName, name.familyName, name.suffix]
         .filter(Boolean);
       if (parts.length > 0) {
-        return parts.join(' ');
+        return blessed.escape(parts.join(' '));
       }
     }
-    
+
     // Fallback to email or organization
     if (contact.contactData?.emails?.[0]?.value) {
-      return contact.contactData.emails[0].value;
+      return blessed.escape(contact.contactData.emails[0].value);
     }
-    
+
     if (contact.contactData?.organizations?.[0]?.name) {
-      return contact.contactData.organizations[0].name;
+      return blessed.escape(contact.contactData.organizations[0].name);
     }
 
     // Fallback to phone number
     if (contact.contactData?.phoneNumbers?.[0]?.value) {
-      return contact.contactData.phoneNumbers[0].value;
+      return blessed.escape(contact.contactData.phoneNumbers[0].value);
     }
-    
-    return 'Unknown Contact';
+
+    return 'Unnamed Contact';
   }
 
   updateHeader(accountInfo?: AccountInfo, contactCount?: number): void {
@@ -569,16 +585,20 @@ export class Screen {
     this.screen.render();
   }
 
-  emit(event: string, data?: any): void {
+  emit(event: string, data?: unknown): void {
     this.screen.emit(event, data);
   }
 
-  on(event: string, callback: (...args: any[]) => void): void {
+  on(event: string, callback: (...args: unknown[]) => void): void {
     this.screen.on(event, callback);
   }
 
   focus(): void {
     this.contactList.focus();
+  }
+
+  get syncQueueViewer() {
+    return this.toolsMenu.getSyncQueueViewer();
   }
 
   private showTools(): void {

@@ -1,6 +1,7 @@
 import { Contact, ContactData } from '../types/contactsplus';
 import { logger } from './logger';
 import * as crypto from 'crypto';
+import { MAX_NAME_LENGTH, HASH_SUBSTRING_LENGTH } from './constants';
 
 /**
  * Column mapping configuration
@@ -268,6 +269,11 @@ export class CsvContactMapper {
   private parseFullName(fullName: string): { givenName?: string; familyName?: string; middleName?: string } {
     if (!fullName) return {};
 
+    // ReDoS Protection: Validate input length before regex operation
+    if (fullName.length > MAX_NAME_LENGTH) {
+      throw new Error(`Full name exceeds maximum length of ${MAX_NAME_LENGTH} characters`);
+    }
+
     const parts = fullName.trim().split(/\s+/);
 
     if (parts.length === 1) {
@@ -292,7 +298,7 @@ export class CsvContactMapper {
     const hash = crypto.createHash('md5');
     const data = JSON.stringify(row);
     hash.update(data);
-    return `csv-${hash.digest('hex').substring(0, 16)}`;
+    return `csv-${hash.digest('hex').substring(0, HASH_SUBSTRING_LENGTH)}`;
   }
 
   /**

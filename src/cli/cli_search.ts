@@ -1,4 +1,4 @@
-import { semanticSearch } from './api';
+import { semanticSearch } from '../ml/api';
 
 const q = process.argv.slice(2).join(' ');
 if (!q) { console.error('usage: npm run ai:search -- "query"'); process.exit(1); }

@@ -2,6 +2,7 @@ import { Contact } from '../types/contactsplus';
 import { CsvParser, CsvData } from '../utils/csv-parser';
 import { CsvContactMapper, ColumnMapping } from '../utils/csv-contact-mapper';
 import { logger } from '../utils/logger';
+import { FieldParser } from '../utils/field-parser';
 import jaroWinkler from 'jaro-winkler';
 
 /**
@@ -415,15 +416,14 @@ export class CsvImportTool {
    * Normalize phone numbers for comparison
    */
   private normalizePhones(phones: string[]): string[] {
-    return phones.map(p => this.normalizePhone(p));
+    return phones.map(p => FieldParser.normalizePhone(p));
   }
 
   /**
    * Normalize a single phone number
    */
   private normalizePhone(phone: string): string {
-    // Remove all non-digit characters
-    return phone.replace(/\D/g, '');
+    return FieldParser.normalizePhone(phone);
   }
 
   /**

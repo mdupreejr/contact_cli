@@ -1,5 +1,6 @@
 import * as blessed from 'blessed';
 import { logger, LogLevel } from '../utils/logger';
+import { CircularBuffer } from '../utils/circular-buffer';
 
 export class LoggingScreen {
   private screen: blessed.Widgets.Screen;
@@ -8,16 +9,18 @@ export class LoggingScreen {
   private filterBox: blessed.Widgets.BoxElement;
   private footerBox: blessed.Widgets.BoxElement;
   private isVisible = false;
-  private logEntries: Array<{ timestamp: Date; level: string; message: string }> = [];
+  private logEntries: CircularBuffer<{ timestamp: Date; level: string; message: string }>;
   private filteredEntries: Array<{ timestamp: Date; level: string; message: string }> = [];
   private currentFilter: LogLevel | null = null;
   private autoScroll = true;
+  private readonly MAX_LOG_ENTRIES = 1000;
 
   constructor(screen: blessed.Widgets.Screen) {
     this.screen = screen;
+    this.logEntries = new CircularBuffer(this.MAX_LOG_ENTRIES);
     this.createLoggingUI();
     this.setupEventHandlers();
-    
+
     // Start collecting logs
     this.startLogCollection();
   }
@@ -121,7 +124,7 @@ export class LoggingScreen {
   }
 
   private getFooterContent(): string {
-    return ' {cyan-fg}↑↓{/cyan-fg}: Navigate | {cyan-fg}1-4{/cyan-fg}: Filter levels | {cyan-fg}a{/cyan-fg}: Auto-scroll | {cyan-fg}c{/cyan-fg}: Clear | {cyan-fg}e{/cyan-fg}: Export | {cyan-fg}q{/cyan-fg}: Back';
+    return ' {cyan-fg}↑↓{/cyan-fg}: Navigate | {cyan-fg}1-4{/cyan-fg}: Filter levels | {cyan-fg}a{/cyan-fg}: Auto-scroll | {cyan-fg}c{/cyan-fg}: Clear | {cyan-fg}e{/cyan-fg}: Export | {cyan-fg}ESC{/cyan-fg}: Back';
   }
 
   private setupEventHandlers(): void {
@@ -177,28 +180,28 @@ export class LoggingScreen {
       debug: logger.debug.bind(logger),
     };
 
-    logger.error = function(message: string, ...args: any[]) {
+    logger.error = function(message: string, ...args: unknown[]) {
       self.addLogEntry(LogLevel.ERROR, 'ERROR', message, args);
       return originalMethods.error(message, ...args);
     };
 
-    logger.warn = function(message: string, ...args: any[]) {
+    logger.warn = function(message: string, ...args: unknown[]) {
       self.addLogEntry(LogLevel.WARN, 'WARN', message, args);
       return originalMethods.warn(message, ...args);
     };
 
-    logger.info = function(message: string, ...args: any[]) {
+    logger.info = function(message: string, ...args: unknown[]) {
       self.addLogEntry(LogLevel.INFO, 'INFO', message, args);
       return originalMethods.info(message, ...args);
     };
 
-    logger.debug = function(message: string, ...args: any[]) {
+    logger.debug = function(message: string, ...args: unknown[]) {
       self.addLogEntry(LogLevel.DEBUG, 'DEBUG', message, args);
       return originalMethods.debug(message, ...args);
     };
   }
 
-  private addLogEntry(level: LogLevel, levelText: string, message: string, args: any[]): void {
+  private addLogEntry(level: LogLevel, levelText: string, message: string, args: unknown[]): void {
     const entry = {
       timestamp: new Date(),
       level: levelText,
@@ -206,19 +209,15 @@ export class LoggingScreen {
     };
 
     this.logEntries.push(entry);
-    
-    // Keep only last 1000 entries to prevent memory issues
-    if (this.logEntries.length > 1000) {
-      this.logEntries.shift();
-    }
 
     // Update filtered view if this entry should be shown
     if (this.shouldShowEntry(level)) {
       this.filteredEntries.push(entry);
+      // Keep only last 1000 entries to prevent memory issues
       if (this.filteredEntries.length > 1000) {
         this.filteredEntries.shift();
       }
-      
+
       if (this.isVisible) {
         this.updateLogDisplay();
       }
@@ -236,13 +235,13 @@ export class LoggingScreen {
   }
 
   private applyFilter(): void {
-    this.filteredEntries = this.logEntries.filter(entry => {
+    this.filteredEntries = this.logEntries.filter((entry, index) => {
       if (this.currentFilter === null) return true;
-      
+
       const entryLevel = this.getLevelFromText(entry.level);
       return entryLevel <= this.currentFilter;
     });
-    
+
     if (this.isVisible) {
       this.updateLogDisplay();
     }
@@ -290,7 +289,7 @@ export class LoggingScreen {
   }
 
   private clearLogs(): void {
-    this.logEntries = [];
+    this.logEntries.clear();
     this.filteredEntries = [];
     this.updateLogDisplay();
     this.updateFilterDisplay();
@@ -384,16 +383,16 @@ export class LoggingScreen {
   }
 
   // Get log statistics for the stats screen
-  getLogStats(): any {
+  getLogStats(): { total: number; errors: number; warnings: number; info: number; debug: number } {
     const stats = {
-      total: this.logEntries.length,
+      total: this.logEntries.length(),
       errors: 0,
       warnings: 0,
       info: 0,
       debug: 0,
     };
 
-    this.logEntries.forEach(entry => {
+    this.logEntries.forEach((entry, index) => {
       switch (entry.level) {
         case 'ERROR': stats.errors++; break;
         case 'WARN': stats.warnings++; break;

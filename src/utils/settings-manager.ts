@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AppSettings, DEFAULT_SETTINGS, SettingsValidationResult, SettingsValidationError } from '../types/settings';
 import { logger } from './logger';
+import { Validators } from './validators';
 
 const SETTINGS_FILE = path.join(process.cwd(), '.contactsplus.settings.json');
 
@@ -28,7 +29,7 @@ export class SettingsManager {
         const fileSettings = JSON.parse(fileContent);
 
         // Merge with defaults (defaults first, then file settings)
-        this.settings = this.mergeSettings(DEFAULT_SETTINGS, fileSettings);
+        this.settings = this.mergeSettings(DEFAULT_SETTINGS as unknown as Record<string, unknown>, fileSettings) as unknown as AppSettings;
         logger.info(`Settings loaded from ${this.settingsPath}`);
       } else {
         logger.info('No settings file found, using defaults');
@@ -88,7 +89,7 @@ export class SettingsManager {
    * Update specific settings
    */
   async updateSettings(updates: Partial<AppSettings>): Promise<void> {
-    const newSettings = this.mergeSettings(this.settings, updates);
+    const newSettings = this.mergeSettings(this.settings as unknown as Record<string, unknown>, updates as unknown as Record<string, unknown>) as unknown as AppSettings;
     await this.save(newSettings);
   }
 
@@ -112,7 +113,7 @@ export class SettingsManager {
           field: 'dataSource.jsonFilePath',
           message: `JSON file not found: ${settings.dataSource.jsonFilePath}`,
         });
-      } else if (!settings.dataSource.jsonFilePath.endsWith('.json')) {
+      } else if (!Validators.hasExtension(settings.dataSource.jsonFilePath, '.json')) {
         errors.push({
           field: 'dataSource.jsonFilePath',
           message: 'JSON file must have .json extension',
@@ -126,7 +127,7 @@ export class SettingsManager {
           field: 'dataSource.csvFilePath',
           message: `CSV file not found: ${settings.dataSource.csvFilePath}`,
         });
-      } else if (!settings.dataSource.csvFilePath.endsWith('.csv')) {
+      } else if (!Validators.hasExtension(settings.dataSource.csvFilePath, '.csv')) {
         errors.push({
           field: 'dataSource.csvFilePath',
           message: 'CSV file must have .csv extension',
@@ -135,32 +136,28 @@ export class SettingsManager {
     }
 
     // Validate API settings
-    if (settings.api.timeout < 1000 || settings.api.timeout > 300000) {
+    if (!Validators.isInRange(settings.api.timeout, 1000, 300000)) {
       errors.push({
         field: 'api.timeout',
         message: 'API timeout must be between 1000 and 300000 milliseconds',
       });
     }
 
-    if (settings.api.maxRetries < 0 || settings.api.maxRetries > 10) {
+    if (!Validators.isInRange(settings.api.maxRetries, 0, 10)) {
       errors.push({
         field: 'api.maxRetries',
         message: 'Max retries must be between 0 and 10',
       });
     }
 
-    try {
-      new URL(settings.api.apiBase);
-    } catch {
+    if (!Validators.isUrl(settings.api.apiBase)) {
       errors.push({
         field: 'api.apiBase',
         message: 'API base URL is invalid',
       });
     }
 
-    try {
-      new URL(settings.api.authBase);
-    } catch {
+    if (!Validators.isUrl(settings.api.authBase)) {
       errors.push({
         field: 'api.authBase',
         message: 'Auth base URL is invalid',
@@ -169,21 +166,21 @@ export class SettingsManager {
 
     // Validate UI settings
     const validLogLevels = ['debug', 'info', 'warn', 'error'];
-    if (!validLogLevels.includes(settings.ui.logLevel)) {
+    if (!Validators.isOneOf(settings.ui.logLevel, validLogLevels)) {
       errors.push({
         field: 'ui.logLevel',
         message: `Log level must be one of: ${validLogLevels.join(', ')}`,
       });
     }
 
-    if (settings.ui.autoRefreshMinutes < 0 || settings.ui.autoRefreshMinutes > 1440) {
+    if (!Validators.isInRange(settings.ui.autoRefreshMinutes, 0, 1440)) {
       errors.push({
         field: 'ui.autoRefreshMinutes',
         message: 'Auto refresh must be between 0 and 1440 minutes (24 hours)',
       });
     }
 
-    if (settings.ui.pageSize < 10 || settings.ui.pageSize > 1000) {
+    if (!Validators.isInRange(settings.ui.pageSize, 10, 1000)) {
       errors.push({
         field: 'ui.pageSize',
         message: 'Page size must be between 10 and 1000',
@@ -191,14 +188,14 @@ export class SettingsManager {
     }
 
     // Validate cache settings
-    if (settings.cache.ttlMinutes < 1 || settings.cache.ttlMinutes > 10080) {
+    if (!Validators.isInRange(settings.cache.ttlMinutes, 1, 10080)) {
       errors.push({
         field: 'cache.ttlMinutes',
         message: 'Cache TTL must be between 1 and 10080 minutes (1 week)',
       });
     }
 
-    if (settings.cache.maxSizeMB < 10 || settings.cache.maxSizeMB > 10000) {
+    if (!Validators.isInRange(settings.cache.maxSizeMB, 10, 10000)) {
       errors.push({
         field: 'cache.maxSizeMB',
         message: 'Cache max size must be between 10 and 10000 MB',
@@ -214,13 +211,16 @@ export class SettingsManager {
   /**
    * Deep merge two settings objects
    */
-  private mergeSettings(base: any, override: any): any {
+  private mergeSettings(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {
     const result = { ...base };
 
     for (const key in override) {
       if (override.hasOwnProperty(key)) {
         if (override[key] !== null && typeof override[key] === 'object' && !Array.isArray(override[key])) {
-          result[key] = this.mergeSettings(base[key] || {}, override[key]);
+          result[key] = this.mergeSettings(
+            (base[key] as Record<string, unknown>) || {},
+            override[key] as Record<string, unknown>
+          );
         } else {
           result[key] = override[key];
         }

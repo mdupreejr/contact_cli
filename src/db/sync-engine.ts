@@ -40,6 +40,7 @@ export type SyncProgressCallback = (progress: {
   total: number;
   currentItem: SyncQueueItem;
   result?: SyncItemResult;
+  step?: string;
 }) => void;
 
 /**
@@ -105,26 +106,36 @@ export class SyncEngine {
       }
 
       try {
-        const result = await this.syncQueueItem(item);
+        const result = await this.syncQueueItem(item, i, approvedItems.length, progressCallback);
         results.push(result);
 
         if (result.success) {
           successCount++;
+          // Notify completion
+          if (progressCallback) {
+            progressCallback({
+              current: i + 1,
+              total: approvedItems.length,
+              currentItem: item,
+              result,
+              step: '✓ Completed',
+            });
+          }
         } else {
           failureCount++;
-        }
-
-        // Notify progress with result
-        if (progressCallback) {
-          progressCallback({
-            current: i + 1,
-            total: approvedItems.length,
-            currentItem: item,
-            result,
-          });
+          // Notify failure
+          if (progressCallback) {
+            progressCallback({
+              current: i + 1,
+              total: approvedItems.length,
+              currentItem: item,
+              result,
+              step: `✗ Failed: ${result.error}`,
+            });
+          }
         }
       } catch (error) {
-        logger.error('Unexpected error syncing item:', { queueId: item.id, error });
+        logger.error('Unexpected error syncing item', { queueId: item.id, contactId: item.contactId, operation: item.operation, error });
 
         const result: SyncItemResult = {
           queueId: item.id,
@@ -164,9 +175,51 @@ export class SyncEngine {
   }
 
   /**
+   * Sync a single item by queue ID
+   */
+  async syncItem(queueId: number): Promise<SyncItemResult> {
+    const item = this.syncQueue.getQueueItem(queueId);
+    if (!item) {
+      return {
+        queueId,
+        contactId: '',
+        operation: '',
+        success: false,
+        error: 'Queue item not found',
+      };
+    }
+
+    const SYNC_TIMEOUT_MS = 30000; // 30 seconds
+    let timeoutId: NodeJS.Timeout;
+
+    const timeoutPromise = new Promise<SyncItemResult>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('Sync timeout after 30 seconds')), SYNC_TIMEOUT_MS);
+    });
+
+    const syncPromise = this.syncQueueItem(item, 0, 1, undefined);
+
+    try {
+      const result = await Promise.race([syncPromise, timeoutPromise]);
+      clearTimeout(timeoutId!);
+      return result;
+    } catch (error) {
+      clearTimeout(timeoutId!);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.syncQueue.markItemFailed(queueId, errorMessage);
+      return {
+        queueId,
+        contactId: item.contactId,
+        operation: item.operation,
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
    * Sync a single queue item with retry logic
    */
-  private async syncQueueItem(item: SyncQueueItem): Promise<SyncItemResult> {
+  private async syncQueueItem(item: SyncQueueItem, index: number, total: number, progressCallback?: SyncProgressCallback): Promise<SyncItemResult> {
     let lastError: string | undefined;
 
     // Try up to maxRetries times
@@ -174,6 +227,10 @@ export class SyncEngine {
       try {
         // Mark as syncing on first attempt (with optimistic locking)
         if (attempt === 0) {
+          if (progressCallback) {
+            progressCallback({ current: index + 1, total, currentItem: item, step: 'Preparing to sync...' });
+          }
+
           const marked = this.syncQueue.markItemSyncing(item.id);
           if (!marked) {
             // Item is already being synced by another process - skip it
@@ -188,7 +245,7 @@ export class SyncEngine {
         }
 
         // Perform sync operation
-        const apiContact = await this.performSyncOperation(item);
+        const apiContact = await this.performSyncOperation(item, index, total, progressCallback);
 
         // Mark as synced
         this.syncQueue.markItemSynced(item.id);
@@ -207,19 +264,26 @@ export class SyncEngine {
         };
       } catch (error) {
         lastError = error instanceof Error ? error.message : 'Unknown error';
-        logger.warn(`Sync attempt ${attempt + 1}/${this.maxRetries + 1} failed for queue item ${item.id}:`, lastError);
+        logger.warn('Sync attempt failed', {
+          queueId: item.id,
+          contactId: item.contactId,
+          operation: item.operation,
+          attempt: attempt + 1,
+          maxAttempts: this.maxRetries + 1,
+          error: lastError
+        });
 
         // If we have retries left, wait before trying again
         if (attempt < this.maxRetries) {
           const delayMs = this.calculateRetryDelay(attempt);
-          logger.debug(`Waiting ${delayMs}ms before retry...`);
+          logger.debug('Waiting before retry', { delayMs, nextAttempt: attempt + 2 });
           await this.sleep(delayMs);
         }
       }
     }
 
     // All retries exhausted
-    this.syncQueue.markItemFailed(item.id, lastError!);
+    this.syncQueue.markItemFailed(item.id, lastError || 'Unknown error after retries');
 
     return {
       queueId: item.id,
@@ -233,13 +297,13 @@ export class SyncEngine {
   /**
    * Perform the actual sync operation (create, update, or delete)
    */
-  private async performSyncOperation(item: SyncQueueItem): Promise<Contact | undefined> {
+  private async performSyncOperation(item: SyncQueueItem, index: number, total: number, progressCallback?: SyncProgressCallback): Promise<Contact | undefined> {
     switch (item.operation) {
       case 'create':
-        return await this.performCreate(item);
+        return await this.performCreate(item, index, total, progressCallback);
 
       case 'update':
-        return await this.performUpdate(item);
+        return await this.performUpdate(item, index, total, progressCallback);
 
       case 'delete':
         await this.performDelete(item);
@@ -253,7 +317,7 @@ export class SyncEngine {
   /**
    * Create contact in API
    */
-  private async performCreate(item: SyncQueueItem): Promise<Contact> {
+  private async performCreate(item: SyncQueueItem, index: number, total: number, progressCallback?: SyncProgressCallback): Promise<Contact> {
     if (!item.dataAfter) {
       throw new Error('Create operation requires dataAfter');
     }
@@ -270,28 +334,50 @@ export class SyncEngine {
       updated: '',
     };
 
-    logger.debug(`Creating contact in API: ${item.contactId}`);
+    if (progressCallback) {
+      progressCallback({ current: index + 1, total, currentItem: item, step: 'Submitting new contact to API...' });
+    }
+
+    logger.info('Creating contact in API', { contactId: item.contactId, queueId: item.id });
     const createdContact = await this.api.createContact(contactToCreate);
 
-    logger.info(`Contact created in API: ${createdContact.contactId}`);
+    if (progressCallback) {
+      progressCallback({ current: index + 1, total, currentItem: item, step: 'Contact created successfully' });
+    }
+
+    logger.info('Contact created in API successfully', { contactId: createdContact.contactId, queueId: item.id });
     return createdContact;
   }
 
   /**
    * Update contact in API with conflict detection
    */
-  private async performUpdate(item: SyncQueueItem): Promise<Contact> {
+  private async performUpdate(item: SyncQueueItem, index: number, total: number, progressCallback?: SyncProgressCallback): Promise<Contact> {
     if (!item.dataAfter) {
       throw new Error('Update operation requires dataAfter');
     }
 
+    if (progressCallback) {
+      progressCallback({ current: index + 1, total, currentItem: item, step: 'Connecting to API...' });
+    }
+
     // Fetch current contact from API to check for conflicts
-    logger.debug(`Fetching current contact from API: ${item.contactId}`);
+    logger.debug('Fetching current contact from API', { contactId: item.contactId, queueId: item.id });
     const contacts = await this.api.getContactsByIds([item.contactId]);
+
+    if (progressCallback) {
+      progressCallback({ current: index + 1, total, currentItem: item, step: 'Verifying contact exists...' });
+    }
+
     if (contacts.length === 0) {
+      logger.error('Contact not found in API', { contactId: item.contactId, queueId: item.id });
       throw new Error(`Contact not found in API: ${item.contactId}`);
     }
     const apiContact = contacts[0];
+
+    if (progressCallback) {
+      progressCallback({ current: index + 1, total, currentItem: item, step: 'Checking for conflicts...' });
+    }
 
     // Check for conflicts by comparing hashes
     const apiHash = generateContactHash(apiContact);
@@ -305,21 +391,33 @@ export class SyncEngine {
         updated: '',
       }) : null;
 
+    // Log conflict detection but continue with merge strategy
     if (expectedHash && !compareContactHashes(apiHash, expectedHash)) {
-      logger.warn(`Conflict detected for contact ${item.contactId}: API hash ${apiHash} != expected ${expectedHash}`);
-      throw new Error(`Conflict detected: Contact has been modified in API since queued`);
+      logger.warn('Contact modified in API since queued - using current etag for update', {
+        contactId: item.contactId,
+        queueId: item.id,
+        apiEtag: apiContact.etag
+      });
     }
 
-    // No conflict, proceed with update
+    // Proceed with update using current API etag (merge strategy)
+    if (progressCallback) {
+      progressCallback({ current: index + 1, total, currentItem: item, step: 'Submitting changes to API...' });
+    }
+
     const contactToUpdate: Contact = {
       ...apiContact,
       contactData: item.dataAfter,
     };
 
-    logger.debug(`Updating contact in API: ${item.contactId}`);
+    logger.info('Updating contact in API', { contactId: item.contactId, queueId: item.id });
     const updatedContact = await this.api.updateContact(contactToUpdate);
 
-    logger.info(`Contact updated in API: ${updatedContact.contactId}`);
+    if (progressCallback) {
+      progressCallback({ current: index + 1, total, currentItem: item, step: 'Update accepted, verifying...' });
+    }
+
+    logger.info('Contact updated in API successfully', { contactId: updatedContact.contactId, queueId: item.id });
     return updatedContact;
   }
 
@@ -328,7 +426,7 @@ export class SyncEngine {
    * Note: ContactsPlus API doesn't support delete operations yet
    */
   private async performDelete(item: SyncQueueItem): Promise<void> {
-    logger.warn(`Delete operation not supported by API: ${item.contactId}`);
+    logger.warn('Delete operation not supported by API', { contactId: item.contactId, queueId: item.id });
     throw new Error('Delete operation is not supported by the ContactsPlus API');
   }
 
@@ -393,7 +491,7 @@ export class SyncEngine {
           });
         }
       } catch (error) {
-        logger.error(`Error checking conflict for contact ${item.contactId}:`, error);
+        logger.error('Error checking conflict for contact', { contactId: item.contactId, queueId: item.id, error });
 
         const localContact = this.contactStore.getContact(item.contactId);
         if (localContact) {

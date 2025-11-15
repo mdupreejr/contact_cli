@@ -1,6 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from './logger';
+import {
+  MAX_CSV_FILE_SIZE,
+  MAX_CSV_CONTENT_LENGTH,
+  MAX_CSV_ROWS,
+  MAX_CSV_COLUMNS,
+  MAX_CSV_CELL_LENGTH,
+  CSV_PREVIEW_LENGTH,
+  BYTES_PER_KB,
+  BYTES_PER_MB,
+} from './constants';
 
 /**
  * Parsed CSV data structure
@@ -83,12 +93,11 @@ export class CsvParser {
       }
 
       // Check file size (max 50MB)
-      const MAX_FILE_SIZE = 50 * 1024 * 1024;
-      if (stats.size > MAX_FILE_SIZE) {
-        throw new Error(`File too large: ${(stats.size / 1024 / 1024).toFixed(2)}MB (maximum ${MAX_FILE_SIZE / 1024 / 1024}MB)`);
+      if (stats.size > MAX_CSV_FILE_SIZE) {
+        throw new Error(`File too large: ${(stats.size / BYTES_PER_MB).toFixed(2)}MB (maximum ${MAX_CSV_FILE_SIZE / BYTES_PER_MB}MB)`);
       }
 
-      logger.info(`Parsing CSV file: ${realPath} (${(stats.size / 1024).toFixed(2)}KB)`);
+      logger.info(`Parsing CSV file: ${realPath} (${(stats.size / BYTES_PER_KB).toFixed(2)}KB)`);
 
       // Read file asynchronously (use realPath to ensure we read the actual file)
       const content = await fs.promises.readFile(realPath, this.options.encoding);
@@ -153,8 +162,8 @@ export class CsvParser {
     // Remove leading characters that could trigger formula execution
     const dangerousChars = ['=', '+', '-', '@', '\t', '\r'];
     if (dangerousChars.includes(value[0])) {
-      const preview = value.substring(0, 50);
-      logger.warn(`Sanitizing potentially dangerous CSV cell value: ${preview}${value.length > 50 ? '...' : ''}`);
+      const preview = value.substring(0, CSV_PREVIEW_LENGTH);
+      logger.warn(`Sanitizing potentially dangerous CSV cell value: ${preview}${value.length > CSV_PREVIEW_LENGTH ? '...' : ''}`);
       return `'${value}`; // Prefix with single quote to force text interpretation
     }
 
@@ -204,7 +213,13 @@ export class CsvParser {
    * Split content into lines, handling different line endings
    */
   private splitLines(content: string): string[] {
+    // ReDoS Protection: Validate input length before regex operations
+    if (content.length > MAX_CSV_CONTENT_LENGTH) {
+      throw new Error(`Content exceeds maximum length of ${MAX_CSV_CONTENT_LENGTH} characters`);
+    }
+
     // Normalize line endings to \n
+    // These regex patterns are safe from ReDoS (simple literal matches with no nested quantifiers)
     const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     return normalized.split('\n');
   }
@@ -231,6 +246,7 @@ export class CsvParser {
     const counts: Record<string, number[]> = {};
 
     for (const delimiter of delimiters) {
+      // ReDoS Protection: Regex pattern is safe (single escaped character match with no nested quantifiers)
       counts[delimiter] = lines.map(line => (line.match(new RegExp(`\\${delimiter}`, 'g')) || []).length);
     }
 
@@ -261,6 +277,77 @@ export class CsvParser {
    */
   static validate(data: CsvData): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
+
+    // Check row count limit
+    if (data.rows.length > MAX_CSV_ROWS) {
+      errors.push(`CSV file exceeds maximum row limit of ${MAX_CSV_ROWS}`);
+      return {
+        valid: false,
+        errors,
+      };
+    }
+
+    // Check column count limit
+    if (data.headers.length > MAX_CSV_COLUMNS) {
+      errors.push(`CSV file exceeds maximum column limit of ${MAX_CSV_COLUMNS}`);
+      return {
+        valid: false,
+        errors,
+      };
+    }
+
+    // Check for empty header names
+    for (let i = 0; i < data.headers.length; i++) {
+      if (!data.headers[i] || data.headers[i].trim() === '') {
+        errors.push(`Column ${i + 1} has empty header name`);
+        return {
+          valid: false,
+          errors,
+        };
+      }
+    }
+
+    // Check for duplicate header names
+    const headerSet = new Set<string>();
+    for (const header of data.headers) {
+      if (headerSet.has(header)) {
+        errors.push(`Duplicate header name found: ${header}`);
+        return {
+          valid: false,
+          errors,
+        };
+      }
+      headerSet.add(header);
+    }
+
+    // Check cell content length
+    for (let i = 0; i < data.rows.length; i++) {
+      for (let j = 0; j < data.rows[i].length; j++) {
+        if (data.rows[i][j] && data.rows[i][j].length > MAX_CSV_CELL_LENGTH) {
+          errors.push(`Cell at row ${i + 1}, column ${j + 1} exceeds maximum length of ${MAX_CSV_CELL_LENGTH} characters`);
+          return {
+            valid: false,
+            errors,
+          };
+        }
+      }
+    }
+
+    // Estimate total data size
+    let totalSize = 0;
+    for (const row of data.rows) {
+      for (const cell of row) {
+        totalSize += cell ? cell.length * 2 : 0; // UTF-16 in JavaScript (2 bytes per char)
+      }
+    }
+
+    if (totalSize > MAX_CSV_CONTENT_LENGTH) {
+      errors.push(`CSV data size exceeds maximum of ${MAX_CSV_CONTENT_LENGTH / BYTES_PER_MB}MB in memory`);
+      return {
+        valid: false,
+        errors,
+      };
+    }
 
     if (data.headers.length === 0) {
       errors.push('No headers found in CSV file');

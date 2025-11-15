@@ -85,6 +85,43 @@ CREATE TABLE IF NOT EXISTS metadata (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Statistics tracking tables
+CREATE TABLE IF NOT EXISTS api_calls (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  endpoint TEXT,
+  success BOOLEAN NOT NULL,
+  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for counting API calls
+CREATE INDEX IF NOT EXISTS idx_api_calls_timestamp ON api_calls(timestamp);
+
+CREATE TABLE IF NOT EXISTS contact_views (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contact_id TEXT NOT NULL,
+  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for counting contact views
+CREATE INDEX IF NOT EXISTS idx_contact_views_timestamp ON contact_views(timestamp);
+
+-- Tool activity tracking table
+CREATE TABLE IF NOT EXISTS tool_activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tool_name TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  suggestions_generated INTEGER DEFAULT 0,
+  contacts_modified INTEGER DEFAULT 0,
+  last_run TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for finding tool activity by tool name
+CREATE INDEX IF NOT EXISTS idx_tool_activity_name ON tool_activity(tool_name);
+
+-- Index for finding tool activity by session
+CREATE INDEX IF NOT EXISTS idx_tool_activity_session ON tool_activity(session_id);
+
 -- Insert initial schema version
 INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '1');
 INSERT OR IGNORE INTO metadata (key, value) VALUES ('created_at', datetime('now'));

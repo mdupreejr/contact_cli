@@ -1,12 +1,16 @@
 import { Contact, ContactName } from '../types/contactsplus';
 import { ContactsApi } from '../api/contacts';
 import { logger } from '../utils/logger';
+import { getSyncQueue } from '../db/sync-queue';
+import { getContactStore } from '../db/contact-store';
 
 export interface DuplicateNameIssue {
   contact: Contact;
   duplicateWords: string[];
   suggestedFix: ContactName;
 }
+
+export type ProgressCallback = (current: number, total: number, message: string) => void;
 
 export class DuplicateNameFixer {
   private contactsApi: ContactsApi;
@@ -18,10 +22,19 @@ export class DuplicateNameFixer {
   /**
    * Analyzes contacts and finds those with duplicate words in their names
    */
-  findDuplicateNames(contacts: Contact[]): DuplicateNameIssue[] {
+  findDuplicateNames(contacts: Contact[], progressCallback?: ProgressCallback): DuplicateNameIssue[] {
     const issues: DuplicateNameIssue[] = [];
 
-    for (const contact of contacts) {
+    logger.info(`Starting duplicate name analysis on ${contacts.length} contacts`);
+
+    for (let i = 0; i < contacts.length; i++) {
+      const contact = contacts[i];
+
+      if (progressCallback && (i % 100 === 0 || i === contacts.length - 1)) {
+        const contactName = this.formatNameForDisplay(contact.contactData?.name || {});
+        progressCallback(i + 1, contacts.length, `Checking: ${contactName}`);
+      }
+
       const name = contact.contactData?.name;
       if (!name) continue;
 
@@ -33,10 +46,20 @@ export class DuplicateNameFixer {
           duplicateWords: duplicates,
           suggestedFix,
         });
+
+        if (progressCallback) {
+          const contactName = this.formatNameForDisplay(name);
+          progressCallback(i + 1, contacts.length, `Found duplicate in: ${contactName}`);
+        }
       }
     }
 
     logger.info(`Found ${issues.length} contacts with duplicate name words`);
+
+    if (progressCallback) {
+      progressCallback(contacts.length, contacts.length, `Analysis complete: ${issues.length} issues found`);
+    }
+
     return issues;
   }
 
@@ -113,7 +136,8 @@ export class DuplicateNameFixer {
   }
 
   /**
-   * Applies the suggested fix to a contact
+   * Queues the suggested fix for a contact (does not apply directly)
+   * @deprecated Use the UI tools menu which properly queues changes
    */
   async applyFix(contact: Contact, suggestedName: ContactName): Promise<Contact> {
     const updatedContact = {
@@ -125,11 +149,53 @@ export class DuplicateNameFixer {
     };
 
     try {
-      const result = await this.contactsApi.updateContact(updatedContact);
-      logger.info(`Successfully fixed duplicate name for contact: ${contact.contactId}`);
-      return result;
+      // Queue the change instead of applying directly
+      const syncQueue = getSyncQueue();
+      const contactStore = getContactStore();
+
+      // Check if this exact change is already in the queue
+      const existingQueueItems = syncQueue.getQueueItems({
+        syncStatus: ['pending', 'approved'],
+      });
+
+      const alreadyQueued = existingQueueItems.some(item => {
+        if (item.contactId !== contact.contactId) return false;
+        if (!item.dataAfter?.name) return false;
+
+        const queuedName = item.dataAfter.name;
+        return queuedName.givenName === suggestedName.givenName &&
+               queuedName.familyName === suggestedName.familyName &&
+               queuedName.middleName === suggestedName.middleName &&
+               queuedName.prefix === suggestedName.prefix &&
+               queuedName.suffix === suggestedName.suffix;
+      });
+
+      if (alreadyQueued) {
+        logger.info(`Duplicate name fix already queued for contact: ${contact.contactId}`);
+        return updatedContact;
+      }
+
+      // Add to sync queue
+      syncQueue.addToQueue(
+        contact.contactId,
+        'update',
+        updatedContact.contactData,
+        contact.contactData,
+        undefined
+      );
+
+      // Update local contact store
+      contactStore.saveContact(
+        updatedContact,
+        'manual',
+        undefined,
+        false // Not synced to API yet
+      );
+
+      logger.info(`Queued duplicate name fix for contact: ${contact.contactId}`);
+      return updatedContact;
     } catch (error) {
-      logger.error(`Failed to fix duplicate name for contact ${contact.contactId}:`, error);
+      logger.error(`Failed to queue duplicate name fix for contact ${contact.contactId}:`, error);
       throw error;
     }
   }

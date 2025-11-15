@@ -52,29 +52,82 @@ export class CsvExportTool {
       // Security: Validate against allowed directories (user's home, current working directory)
       const homeDir = process.env.HOME || process.env.USERPROFILE || '';
       const cwd = process.cwd();
-      const tmpDir = process.env.TMPDIR || process.env.TEMP || '/tmp';
 
-      const isAllowedPath = absolutePath.startsWith(homeDir) ||
-                           absolutePath.startsWith(cwd) ||
-                           absolutePath.startsWith(tmpDir);
+      // Check for path traversal BEFORE normalization
+      if (filePath.includes('..') || absolutePath.includes('..')) {
+        throw new Error('Access denied: Path traversal detected');
+      }
+
+      // Then normalize
+      const normalizedPath = path.normalize(absolutePath);
+
+      // Resolve symlinks to prevent TOCTOU attacks
+      let realPath: string;
+      try {
+        realPath = fs.realpathSync(normalizedPath);
+      } catch (error) {
+        // Path doesn't exist yet - validate parent directory
+        const dir = path.dirname(normalizedPath);
+        try {
+          const dirReal = fs.realpathSync(dir);
+          realPath = path.join(dirReal, path.basename(normalizedPath));
+        } catch {
+          // Parent directory doesn't exist - fail securely
+          throw new Error('Access denied: Parent directory does not exist or is not accessible');
+        }
+      }
+
+      // Ensure paths end with separator for exact directory matching
+      const homeDirNormalized = homeDir ? path.join(homeDir, path.sep) : '';
+      const cwdNormalized = path.join(cwd, path.sep);
+
+      const isAllowedPath = (homeDirNormalized && realPath.startsWith(homeDirNormalized)) ||
+                           realPath.startsWith(cwdNormalized);
 
       if (!isAllowedPath) {
         throw new Error('Access denied: File path is outside allowed directories');
       }
 
+      // Prevent writing to system directories (platform-specific)
+      const systemDirs = process.platform === 'win32'
+        ? [
+            'C:\\Windows',
+            'C:\\Program Files',
+            'C:\\Program Files (x86)',
+            'C:\\ProgramData',
+            'C:\\System32',
+            'C:\\Users\\All Users',
+            'C:\\Users\\Default',
+            'C:\\$Recycle.Bin',
+            'C:\\Boot',
+            'C:\\Recovery'
+          ]
+        : ['/etc', '/System', '/bin', '/sbin', '/usr', '/boot', '/var', '/lib',
+           '/lib64', '/opt', '/root', '/proc', '/sys', '/dev', '/run',
+           '/Library', '/Applications', '/Volumes'];
+
+      const isSystemDir = systemDirs.some(dir =>
+        process.platform === 'win32'
+          ? realPath.toUpperCase().startsWith(dir.toUpperCase())
+          : realPath.startsWith(dir)
+      );
+      if (isSystemDir) {
+        throw new Error('Access denied: Cannot write to system directories');
+      }
+
       // Check file extension
-      if (!absolutePath.toLowerCase().endsWith('.csv')) {
+      if (!realPath.toLowerCase().endsWith('.csv')) {
         throw new Error('Invalid file type: Only .csv files are allowed');
       }
 
-      const dir = path.dirname(absolutePath);
+      const dir = path.dirname(realPath);
 
       // Ensure directory exists (only if within allowed paths)
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      logger.info(`Exporting ${contacts.length} contacts to: ${absolutePath}`);
+      logger.info('Starting CSV export', { contactCount: contacts.length, filePath: realPath });
 
       // Determine fields to export
       const fields = opts.fields.length > 0
@@ -97,22 +150,48 @@ export class CsvExportTool {
 
       const csvContent = csvLines.join('\n');
 
-      // Write file
-      await fs.promises.writeFile(absolutePath, csvContent, opts.encoding);
+      // Final security check - atomic write prevents TOCTOU
+      try {
+        // Try atomic create first (wx = write + exclusive, won't follow symlinks)
+        await fs.promises.writeFile(realPath, csvContent, {
+          encoding: opts.encoding,
+          flag: 'wx'
+        });
+      } catch (error: unknown) {
+        if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'EEXIST') {
+          // File exists - verify not a symlink, then overwrite
+          const stats = fs.lstatSync(realPath);
+          if (stats.isSymbolicLink()) {
+            throw new Error('Access denied: Target is a symbolic link');
+          }
+          // Safe to overwrite existing file
+          await fs.promises.writeFile(realPath, csvContent, {
+            encoding: opts.encoding,
+            flag: 'w'
+          });
+        } else {
+          throw error;
+        }
+      }
 
       // Get file stats
-      const stats = fs.statSync(absolutePath);
+      const stats = fs.statSync(realPath);
 
-      logger.info(`CSV export complete: ${absolutePath} (${(stats.size / 1024).toFixed(2)}KB)`);
+      logger.info('CSV export completed successfully', {
+        filePath: realPath,
+        rowCount: contacts.length,
+        fieldCount: fields.length,
+        fileSizeKB: (stats.size / 1024).toFixed(2)
+      });
 
       return {
-        filePath: absolutePath,
+        filePath: realPath,
         rowCount: contacts.length,
         fieldCount: fields.length,
         fileSize: stats.size,
       };
     } catch (error) {
-      logger.error('CSV export failed:', error);
+      logger.error('CSV export failed', { filePath, contactCount: contacts.length, error });
       throw new Error(`Failed to export CSV: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -302,7 +381,8 @@ export class CsvExportTool {
     if (value.length > 0) {
       const firstChar = value.charAt(0);
       if (firstChar === '=' || firstChar === '+' || firstChar === '-' ||
-          firstChar === '@' || firstChar === '\t' || firstChar === '\r') {
+          firstChar === '@' || firstChar === '\t' || firstChar === '\r' ||
+          firstChar === '|' || firstChar === '\n') {
         value = "'" + value;  // Prefix with single quote to force text interpretation
       }
     }

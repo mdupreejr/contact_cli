@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import { Contact } from '../types/contactsplus';
 import { logger } from '../utils/logger';
+import { FieldParser } from '../utils/field-parser';
 
 /**
  * Generate SHA-256 hash from contact data for duplicate detection
@@ -81,7 +82,7 @@ function normalizeContactForHashing(contact: Contact): any {
   if (data.phoneNumbers && data.phoneNumbers.length > 0) {
     normalized.phoneNumbers = data.phoneNumbers
       .map(phone => ({
-        value: normalizePhone(phone.value),
+        value: FieldParser.normalizePhone(phone.value),
         type: phone.type?.trim().toLowerCase() || 'other',
       }))
       .sort((a, b) => a.value.localeCompare(b.value));
@@ -147,13 +148,6 @@ function normalizeContactForHashing(contact: Contact): any {
   }
 
   return normalized;
-}
-
-/**
- * Normalize phone number to digits only
- */
-function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, '');
 }
 
 /**

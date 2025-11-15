@@ -82,7 +82,7 @@ export class ContactDatabase {
       const result = stmt.get('schema_version') as { value: string } | undefined;
       return result?.value || '0';
     } catch (error) {
-      logger.warn('Could not read schema version:', error);
+      logger.warn('Could not read schema version', { error });
       return '0';
     }
   }
@@ -94,11 +94,11 @@ export class ContactDatabase {
     const currentVersion = this.getSchemaVersion();
 
     if (currentVersion >= version) {
-      logger.info(`Migration ${version} already applied (current: ${currentVersion})`);
+      logger.info('Migration already applied', { version, currentVersion });
       return;
     }
 
-    logger.info(`Running migration to version ${version}`);
+    logger.info('Running database migration', { fromVersion: currentVersion, toVersion: version });
 
     try {
       this.db.exec(migrationSql);
@@ -107,9 +107,9 @@ export class ContactDatabase {
       const stmt = this.db.prepare('UPDATE metadata SET value = ?, updated_at = datetime(\'now\') WHERE key = ?');
       stmt.run(version, 'schema_version');
 
-      logger.info(`Migration to version ${version} completed`);
+      logger.info('Database migration completed successfully', { version });
     } catch (error) {
-      logger.error(`Migration to version ${version} failed:`, error);
+      logger.error('Database migration failed', { version, error });
       throw error;
     }
   }
@@ -117,12 +117,12 @@ export class ContactDatabase {
   /**
    * Execute a query with parameters (returns rows)
    */
-  query<T = any>(sql: string, params?: any[]): T[] {
+  query<T>(sql: string, params?: unknown[]): T[] {
     try {
       const stmt = this.db.prepare(sql);
       return stmt.all(...(params || [])) as T[];
     } catch (error) {
-      logger.error('Query failed:', { sql, params, error });
+      logger.error('Database query failed', { sql, params, error });
       throw error;
     }
   }
@@ -130,12 +130,12 @@ export class ContactDatabase {
   /**
    * Execute a query and return first row
    */
-  queryOne<T = any>(sql: string, params?: any[]): T | undefined {
+  queryOne<T>(sql: string, params?: unknown[]): T | undefined {
     try {
       const stmt = this.db.prepare(sql);
       return stmt.get(...(params || [])) as T | undefined;
     } catch (error) {
-      logger.error('QueryOne failed:', { sql, params, error });
+      logger.error('Database queryOne failed', { sql, params, error });
       throw error;
     }
   }
@@ -143,12 +143,12 @@ export class ContactDatabase {
   /**
    * Execute a statement (insert, update, delete)
    */
-  execute(sql: string, params?: any[]): Database.RunResult {
+  execute(sql: string, params?: unknown[]): Database.RunResult {
     try {
       const stmt = this.db.prepare(sql);
       return stmt.run(...(params || []));
     } catch (error) {
-      logger.error('Execute failed:', { sql, params, error });
+      logger.error('Database execute failed', { sql, params, error });
       throw error;
     }
   }
@@ -189,7 +189,7 @@ export class ContactDatabase {
       const sizeKB = stats.size / 1024;
       dbSize = sizeKB < 1024 ? `${sizeKB.toFixed(2)} KB` : `${(sizeKB / 1024).toFixed(2)} MB`;
     } catch (error) {
-      logger.warn('Could not get database size:', error);
+      logger.warn('Could not get database size', { dbPath: this.dbPath, error });
     }
 
     return {
@@ -206,8 +206,24 @@ export class ContactDatabase {
    */
   close(): void {
     if (this.db) {
-      this.db.close();
-      logger.info('Database connection closed');
+      try {
+        this.db.close();
+        logger.info('Database connection closed');
+      } catch (error) {
+        logger.error('Failed to close database connection', { error });
+      } finally {
+        this.db = null as any;
+      }
+    }
+  }
+
+  /**
+   * Cleanup singleton instance
+   */
+  static cleanup(): void {
+    if (ContactDatabase.instance) {
+      ContactDatabase.instance.close();
+      ContactDatabase.instance = null as any;
     }
   }
 
@@ -216,10 +232,11 @@ export class ContactDatabase {
    */
   backup(backupPath: string): void {
     try {
+      logger.info('Starting database backup', { backupPath });
       this.db.backup(backupPath);
-      logger.info(`Database backed up to: ${backupPath}`);
+      logger.info('Database backup completed successfully', { backupPath });
     } catch (error) {
-      logger.error('Database backup failed:', error);
+      logger.error('Database backup failed', { backupPath, error });
       throw error;
     }
   }
@@ -229,12 +246,12 @@ export class ContactDatabase {
    */
   optimize(): void {
     try {
-      logger.info('Optimizing database...');
+      logger.info('Starting database optimization');
       this.db.exec('VACUUM');
       this.db.exec('ANALYZE');
-      logger.info('Database optimization completed');
+      logger.info('Database optimization completed successfully');
     } catch (error) {
-      logger.error('Database optimization failed:', error);
+      logger.error('Database optimization failed', { error });
       throw error;
     }
   }

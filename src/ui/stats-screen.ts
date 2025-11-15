@@ -1,5 +1,6 @@
 import * as blessed from 'blessed';
 import { StatsManager, ContactStats, FieldStats, QualityMetrics, AppMetrics } from '../utils/stats-manager';
+import { getToolActivityTracker, ToolActivityStats } from '../db/tool-activity-tracker';
 
 export class StatsScreen {
   private screen: blessed.Widgets.Screen;
@@ -17,6 +18,8 @@ export class StatsScreen {
     { name: 'Fields', key: '2' },
     { name: 'Quality', key: '3' },
     { name: 'App', key: '4' },
+    { name: 'Tools', key: '5' },
+    { name: 'Database', key: '6' },
   ];
 
   constructor(screen: blessed.Widgets.Screen, statsManager: StatsManager) {
@@ -123,7 +126,7 @@ export class StatsScreen {
   }
 
   private getFooterContent(): string {
-    return ' {cyan-fg}1-4{/cyan-fg}: Switch tabs | {cyan-fg}r{/cyan-fg}: Refresh | {cyan-fg}e{/cyan-fg}: Export | {cyan-fg}↑↓{/cyan-fg}: Scroll | {cyan-fg}q{/cyan-fg}: Back';
+    return ' {cyan-fg}1-6{/cyan-fg}: Switch tabs | {cyan-fg}r{/cyan-fg}: Refresh | {cyan-fg}e{/cyan-fg}: Export | {cyan-fg}↑↓{/cyan-fg}: Scroll | {cyan-fg}ESC{/cyan-fg}: Back';
   }
 
   private setupEventHandlers(): void {
@@ -132,6 +135,8 @@ export class StatsScreen {
     this.statsBox.key(['2'], () => this.switchTab(1));
     this.statsBox.key(['3'], () => this.switchTab(2));
     this.statsBox.key(['4'], () => this.switchTab(3));
+    this.statsBox.key(['5'], () => this.switchTab(4));
+    this.statsBox.key(['6'], () => this.switchTab(5));
 
     // Refresh stats
     this.statsBox.key(['r'], () => {
@@ -182,7 +187,7 @@ export class StatsScreen {
     this.updateDisplay();
   }
 
-  private updateDisplay(): void {
+  private async updateDisplay(): Promise<void> {
     // Update tab bar
     this.tabBar.setContent(this.getTabBarContent());
 
@@ -200,6 +205,12 @@ export class StatsScreen {
         break;
       case 3:
         content = this.getAppMetricsContent();
+        break;
+      case 4:
+        content = await this.getToolActivityContent();
+        break;
+      case 5:
+        content = await this.getDatabaseStatsContent();
         break;
     }
 
@@ -421,6 +432,89 @@ export class StatsScreen {
     return content;
   }
 
+  private async getToolActivityContent(): Promise<string> {
+    const tracker = getToolActivityTracker();
+    const stats = await tracker.getCombinedStats();
+
+    let content = `{bold}{yellow-fg}Tool Activity Overview{/yellow-fg}{/bold}\n\n`;
+
+    if (stats.length === 0) {
+      content += `{gray-fg}No tool activity recorded yet.{/gray-fg}\n`;
+      content += `{gray-fg}Tool activity will appear here after you run tools from the Tools menu.{/gray-fg}\n`;
+    } else {
+      // Create table header
+      content += `{bold}Tool Name{/bold}                          {bold}This Session{/bold}  {bold}Lifetime{/bold}  {bold}Last Run{/bold}\n`;
+      content += `{gray-fg}${'-'.repeat(80)}{/gray-fg}\n`;
+
+      // Add each tool's stats
+      for (const stat of stats) {
+        const toolName = this.truncateText(stat.toolName, 30);
+        const sessionRuns = this.formatNumber(stat.timesRunThisSession, 5);
+        const lifetimeRuns = this.formatNumber(stat.timesRunTotal, 5);
+        const lastRun = stat.lastRunTimestamp ? this.formatTimestamp(stat.lastRunTimestamp) : 'Never';
+
+        content += `{cyan-fg}${toolName}{/cyan-fg} ${sessionRuns}x      ${lifetimeRuns}x      ${lastRun}\n`;
+
+        // Show contacts modified if any
+        if (stat.contactsModifiedThisSession > 0 || stat.contactsModifiedTotal > 0) {
+          const sessionMods = this.formatNumber(stat.contactsModifiedThisSession, 5);
+          const lifetimeMods = this.formatNumber(stat.contactsModifiedTotal, 5);
+          content += `  {gray-fg}Contacts modified:{/gray-fg}         ${sessionMods}       ${lifetimeMods}\n`;
+        }
+
+        content += '\n';
+      }
+
+      content += `{gray-fg}${'-'.repeat(80)}{/gray-fg}\n\n`;
+
+      // Summary statistics
+      const totalSessionRuns = stats.reduce((sum, s) => sum + s.timesRunThisSession, 0);
+      const totalLifetimeRuns = stats.reduce((sum, s) => sum + s.timesRunTotal, 0);
+      const totalSessionMods = stats.reduce((sum, s) => sum + s.contactsModifiedThisSession, 0);
+      const totalLifetimeMods = stats.reduce((sum, s) => sum + s.contactsModifiedTotal, 0);
+
+      content += `{bold}{yellow-fg}Summary{/yellow-fg}{/bold}\n\n`;
+      content += `{bold}Total Tools Run (This Session):{/bold} {cyan-fg}${totalSessionRuns.toLocaleString()}{/cyan-fg}\n`;
+      content += `{bold}Total Tools Run (Lifetime):{/bold} {green-fg}${totalLifetimeRuns.toLocaleString()}{/green-fg}\n`;
+      content += `{bold}Contacts Modified (This Session):{/bold} {cyan-fg}${totalSessionMods.toLocaleString()}{/cyan-fg}\n`;
+      content += `{bold}Contacts Modified (Lifetime):{/bold} {green-fg}${totalLifetimeMods.toLocaleString()}{/green-fg}\n`;
+    }
+
+    return content;
+  }
+
+  private truncateText(text: string, maxLength: number): string {
+    if (text.length <= maxLength) {
+      return text.padEnd(maxLength, ' ');
+    }
+    return text.substring(0, maxLength - 3) + '...';
+  }
+
+  private formatNumber(num: number, width: number): string {
+    return num.toString().padStart(width, ' ');
+  }
+
+  private formatTimestamp(timestamp: number): string {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) {
+      return 'Just now';
+    } else if (diffMins < 60) {
+      return `${diffMins}m ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    } else if (diffDays < 7) {
+      return `${diffDays}d ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
+  }
+
   // Utility methods
   private getPercentage(value: number, total: number): number {
     if (total === 0) return 0;
@@ -452,15 +546,54 @@ export class StatsScreen {
     return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
   }
 
+  private async getDatabaseStatsContent(): Promise<string> {
+    try {
+      const { getDatabase, getSyncQueue, getImportHistory } = await import('../db');
+
+      const db = getDatabase();
+      const stats = db.getStats();
+      const syncQueue = getSyncQueue(db);
+      const queueStats = syncQueue.getQueueStats();
+      const importHistory = getImportHistory(db);
+      const importStats = importHistory.getImportStats();
+
+      let content = `{bold}{yellow-fg}Database Overview{/yellow-fg}{/bold}\n\n`;
+
+      content += `{bold}{cyan-fg}Local Contacts{/cyan-fg}{/bold}\n`;
+      content += `{bold}Total Contacts:{/bold} ${stats.totalContacts.toLocaleString()}\n`;
+      content += `{bold}Unsynced Contacts:{/bold} ${stats.unsyncedContacts.toLocaleString()}\n`;
+      content += `{bold}Database Size:{/bold} ${stats.dbSize}\n\n`;
+
+      content += `{bold}{green-fg}Sync Queue{/green-fg}{/bold}\n`;
+      content += `{bold}Pending:{/bold} ${queueStats.pending.toLocaleString()}\n`;
+      content += `{bold}Approved:{/bold} ${queueStats.approved.toLocaleString()}\n`;
+      content += `{bold}Syncing:{/bold} ${queueStats.syncing.toLocaleString()}\n`;
+      content += `{bold}Synced:{/bold} {green-fg}${queueStats.synced.toLocaleString()}{/green-fg}\n`;
+      content += `{bold}Failed:{/bold} {red-fg}${queueStats.failed.toLocaleString()}{/red-fg}\n`;
+      content += `{bold}Total:{/bold} ${queueStats.total.toLocaleString()}\n\n`;
+
+      content += `{bold}{blue-fg}Import History{/blue-fg}{/bold}\n`;
+      content += `{bold}Total Imports:{/bold} ${importStats.totalImports.toLocaleString()}\n`;
+      content += `{bold}Completed:{/bold} {green-fg}${importStats.completedImports.toLocaleString()}{/green-fg}\n`;
+      content += `{bold}Failed:{/bold} {red-fg}${importStats.failedImports.toLocaleString()}{/red-fg}\n`;
+      content += `{bold}Total Rows Imported:{/bold} ${importStats.totalRowsImported.toLocaleString()}\n`;
+      content += `{bold}Total Contacts Created:{/bold} ${importStats.totalContactsCreated.toLocaleString()}\n`;
+
+      return content;
+    } catch (error) {
+      return `{red-fg}Failed to load database statistics: ${error instanceof Error ? error.message : 'Unknown error'}{/red-fg}`;
+    }
+  }
+
   private exportStats(): void {
     try {
       const fs = require('fs');
       const path = require('path');
-      
+
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = `contactsplus-stats-${timestamp}.json`;
       const filepath = path.join(process.cwd(), filename);
-      
+
       const statsData = {
         exportTime: new Date().toISOString(),
         contacts: this.statsManager.getContactStats(),
@@ -468,9 +601,9 @@ export class StatsScreen {
         quality: this.statsManager.getQualityMetrics(),
         app: this.statsManager.getAppMetrics(),
       };
-      
+
       fs.writeFileSync(filepath, JSON.stringify(statsData, null, 2), 'utf8');
-      
+
       this.showMessage(`Statistics exported to: ${filename}`, 'success');
     } catch (error) {
       this.showMessage('Failed to export statistics: ' + error, 'error');

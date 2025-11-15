@@ -9,10 +9,10 @@
     "dev": "ts-node src/index.ts",
     "type-check": "tsc --noEmit",
     "lint": "eslint src/",
-    "ai:index": "ts-node src/ml/cli_index.ts",
-    "ai:search": "ts-node src/ml/cli_search.ts",
-    "ai:dedupe": "ts-node src/ml/cli_dedupe.ts",
-    "ai:train": "ts-node src/ml/cli_train.ts",
+    "ai:index": "ts-node src/cli/cli_index.ts",
+    "ai:search": "ts-node src/cli/cli_search.ts",
+    "ai:dedupe": "ts-node src/cli/cli_dedupe.ts",
+    "ai:train": "ts-node src/cli/cli_train.ts",
     "generate-test-data": "node scripts/generate-test-data.js"
   },
   "keywords": [

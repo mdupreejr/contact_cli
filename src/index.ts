@@ -6,27 +6,43 @@ import { logger, LogLevel } from './utils/logger';
 import { Contact, AccountInfo } from './types/contactsplus';
 import { closeDB } from './ml/vector-store';
 import { closeFeedbackDB } from './ml/feedback-store';
+import { BackgroundAnalyzer } from './services/background-analyzer';
+import { ContactDatabase } from './db/database';
 
 class ContactsPlusApp {
   private contactsApi: ContactsApi;
   private screen: Screen;
   private contacts: Contact[] = [];
   private accountInfo?: AccountInfo;
+  private backgroundAnalyzer: BackgroundAnalyzer;
 
   constructor() {
     this.contactsApi = new ContactsApi();
     this.screen = new Screen(this.contactsApi);
+    this.backgroundAnalyzer = new BackgroundAnalyzer(this.contactsApi, {
+      enabled: true,
+      intervalMinutes: 30,
+      maxSuggestionsPerRun: 50,
+    });
     this.setupEventHandlers();
   }
 
   private setupEventHandlers(): void {
     this.screen.on('refresh', () => {
-      this.refreshData();
+      this.refreshData().catch((error) => {
+        logger.error('Failed to refresh data:', error);
+        this.screen.showError(error instanceof Error ? error.message : 'Failed to refresh data');
+      });
     });
 
     this.screen.on('contactsUpdated', (updatedContacts: Contact[]) => {
       this.contacts = updatedContacts;
       this.screen.updateHeader(this.accountInfo, this.contacts.length);
+    });
+
+    // Mark user activity for background analyzer
+    this.screen.on('userActivity', () => {
+      this.backgroundAnalyzer.markUserActivity();
     });
 
     // Handle process termination gracefully
@@ -62,27 +78,33 @@ class ContactsPlusApp {
       }
 
       logger.info('Starting ContactsPlus CLI...');
-      
+
       // Show loading screen
       this.screen.showLoading('Authenticating...');
       this.screen.render();
-      
+
       // Enable UI mode to prevent console interference
       logger.setUIMode(true);
 
       // Load account info
       await this.loadAccountInfo();
-      
+
       // Load contacts
       await this.loadContacts();
-      
+
       // Focus the UI
       this.screen.focus();
-      
+
+      // Start background analyzer
+      this.backgroundAnalyzer.start();
+      logger.info('Background analyzer started');
+
       logger.info('Application started successfully');
     } catch (error) {
       logger.error('Failed to start application:', error);
       this.screen.showError(error instanceof Error ? error.message : 'Unknown error occurred');
+      this.cleanup();
+      process.exit(1);
     }
   }
 
@@ -138,12 +160,28 @@ class ContactsPlusApp {
   private cleanup(): void {
     logger.setUIMode(false); // Disable UI mode to allow console output
     logger.info('Cleaning up...');
+
+    // Stop background analyzer
+    if (this.backgroundAnalyzer) {
+      this.backgroundAnalyzer.stop();
+    }
+
+    // Destroy UI screen
     if (this.screen) {
       this.screen.destroy();
     }
-    // Close database connections
+
+    // Clean up API client and OAuth server
+    if (this.contactsApi) {
+      this.contactsApi.cleanup();
+    }
+
+    // Close all database connections
     closeDB();
     closeFeedbackDB();
+
+    // Close main ContactDatabase
+    ContactDatabase.cleanup();
   }
 }
 
@@ -181,14 +219,16 @@ For more information, visit: https://contactsplus.com
 
   // Handle logout command
   if (args.includes('--logout')) {
+    const contactsApi = new ContactsApi();
     try {
-      const contactsApi = new ContactsApi();
       await contactsApi.logout();
       console.log('Successfully logged out. Your authentication tokens have been cleared.');
       process.exit(0);
     } catch (error) {
       console.error('Failed to logout:', error);
       process.exit(1);
+    } finally {
+      contactsApi.cleanup();
     }
   }
 
@@ -206,6 +246,10 @@ For more information, visit: https://contactsplus.com
 if (require.main === module) {
   main().catch((error) => {
     console.error('Failed to start application:', error);
+    // Ensure cleanup on initialization failure
+    closeDB();
+    closeFeedbackDB();
+    ContactDatabase.cleanup();
     process.exit(1);
   });
 }

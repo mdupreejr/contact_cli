@@ -12,9 +12,14 @@ export class CompanyNameCleaningTool extends BaseTool {
   async analyze(contact: Contact): Promise<ToolSuggestion[]> {
     const suggestions: ToolSuggestion[] = [];
 
-    if (!contact.contactData?.organizations) {
+    // Skip if no organizations
+    if (!contact.contactData?.organizations || contact.contactData.organizations.length === 0) {
       return suggestions;
     }
+
+    // Add logging to confirm we're processing companies
+    logger.debug(`Analyzing company names for contact ${contact.contactId}: ${contact.contactData.organizations.map(o => o.name).join(', ')}`);
+
 
     for (let i = 0; i < contact.contactData.organizations.length; i++) {
       const organization = contact.contactData.organizations[i];

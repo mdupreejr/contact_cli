@@ -1,4 +1,4 @@
-import { BaseTool, ToolSuggestion } from '../types/tools';
+import { BaseTool, ToolSuggestion, BatchToolResult, ToolResult } from '../types/tools';
 import { Contact } from '../types/contactsplus';
 import { logger } from '../utils/logger';
 import { dedupeSuggestions } from '../ml/api';
@@ -18,21 +18,27 @@ export class SmartDedupeTool extends BaseTool {
     }
   }
 
-  async batchAnalyze(contacts: Contact[]): Promise<any> {
+  async batchAnalyze(contacts: Contact[]): Promise<BatchToolResult> {
     const startTime = Date.now();
-    const results: any[] = [];
+    const results: ToolResult[] = [];
     const errors: string[] = [];
 
     try {
-      logger.info('Running ML-powered duplicate detection...');
+      logger.info(`Running ML-powered duplicate detection on ${contacts.length} contacts...`);
 
       // Call the ML deduplication
       const duplicatePairs = await dedupeSuggestions(50);
 
       logger.info(`Found ${duplicatePairs.length} potential duplicate pairs`);
 
+      if (duplicatePairs.length === 0) {
+        logger.info('No duplicates found - all contacts appear unique');
+      }
+
       // Convert ML results to tool results format
       for (const pair of duplicatePairs) {
+        logger.info(`Found duplicate: "${pair.a.name}" vs "${pair.b.name}" (${(pair.p * 100).toFixed(1)}% similarity)`);
+
         const suggestion = this.createSuggestion(
           pair.a.id,
           'potential_duplicate',
@@ -59,6 +65,7 @@ export class SmartDedupeTool extends BaseTool {
       }
 
       const executionTime = Date.now() - startTime;
+      logger.info(`Smart deduplication completed in ${executionTime}ms`);
 
       return {
         toolName: this.name,

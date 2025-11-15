@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
+import { logger } from '../utils/logger';
 
 const DB_PATH = process.env.CONTACTS_AI_DB || path.join(process.cwd(), 'data', 'ai.sqlite');
 
@@ -50,9 +51,9 @@ export function closeDB(): void {
   if (db) {
     try {
       db.close();
-      console.log('[vector-store] Database connection closed');
+      logger.info('[vector-store] Database connection closed');
     } catch (error) {
-      console.error('[vector-store] Failed to close database:', error);
+      logger.error('[vector-store] Failed to close database:', error);
     } finally {
       db = null;
     }

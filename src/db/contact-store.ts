@@ -180,7 +180,7 @@ export class ContactStore {
   getAllContacts(limit?: number, offset?: number): Contact[] {
     try {
       let sql = 'SELECT contact_id, contact_data FROM contacts ORDER BY last_modified DESC';
-      const params: any[] = [];
+      const params: unknown[] = [];
 
       if (limit !== undefined) {
         sql += ' LIMIT ?';
@@ -220,7 +220,7 @@ export class ContactStore {
   searchContacts(filter: ContactSearchFilter): Contact[] {
     try {
       const conditions: string[] = [];
-      const params: any[] = [];
+      const params: unknown[] = [];
 
       if (filter.source) {
         conditions.push('source = ?');
@@ -336,7 +336,7 @@ export class ContactStore {
         'data_hash = ?',
         'last_modified = CURRENT_TIMESTAMP',
       ];
-      const params: any[] = [
+      const params: unknown[] = [
         JSON.stringify(contact.contactData),
         dataHash,
       ];
@@ -416,7 +416,7 @@ export class ContactStore {
   countContacts(filter?: ContactSearchFilter): number {
     try {
       const conditions: string[] = [];
-      const params: any[] = [];
+      const params: unknown[] = [];
 
       if (filter?.source) {
         conditions.push('source = ?');

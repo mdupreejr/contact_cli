@@ -1,6 +1,6 @@
 export interface ContactsPlusConfig {
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
   redirectUri: string;
   apiBase: string;
   authBase: string;
@@ -51,8 +51,8 @@ export interface ContactOrganization {
   title?: string;
   location?: string;
   description?: string;
-  startDate?: any;
-  endDate?: any;
+  startDate?: string | ContactDate;
+  endDate?: string | ContactDate;
 }
 
 export interface ContactUrl {
@@ -97,6 +97,7 @@ export interface ContactData {
   notes?: string;
   items?: ContactItem[];
   ims?: ContactIM[];
+  photo?: string; // Base64 encoded photo or URL
 }
 
 export interface ContactMetadata {

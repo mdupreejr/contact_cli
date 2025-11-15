@@ -1,4 +1,4 @@
-import { trainModel } from './train';
+import { trainModel } from '../ml/train';
 
 trainModel().then(result => {
   if (!result.success) {

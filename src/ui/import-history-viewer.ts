@@ -351,7 +351,7 @@ export class ImportHistoryViewer {
     const controls = [
       '{cyan-fg}[R]{/cyan-fg} Refresh',
       '{red-fg}[D]{/red-fg} Delete',
-      '{cyan-fg}[Q]{/cyan-fg} Quit',
+      '{cyan-fg}[ESC]{/cyan-fg} Back',
     ];
 
     const info = this.sessions.length > 0

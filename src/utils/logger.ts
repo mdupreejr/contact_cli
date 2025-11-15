@@ -23,9 +23,9 @@ class Logger {
     }
   }
 
-  private log(level: string, message: string, ...args: any[]): void {
+  private log(level: string, message: string, ...args: unknown[]): void {
     const logMessage = `[${level}] ${message}${args.length ? ' ' + args.join(' ') : ''}`;
-    
+
     if (this.uiMode) {
       // Buffer logs when UI is active to prevent interference
       this.logBuffer.push(logMessage);
@@ -38,25 +38,25 @@ class Logger {
     }
   }
 
-  error(message: string, ...args: any[]): void {
+  error(message: string, ...args: unknown[]): void {
     if (this.level >= LogLevel.ERROR) {
       this.log('ERROR', message, ...args);
     }
   }
 
-  warn(message: string, ...args: any[]): void {
+  warn(message: string, ...args: unknown[]): void {
     if (this.level >= LogLevel.WARN) {
       this.log('WARN', message, ...args);
     }
   }
 
-  info(message: string, ...args: any[]): void {
+  info(message: string, ...args: unknown[]): void {
     if (this.level >= LogLevel.INFO) {
       this.log('INFO', message, ...args);
     }
   }
 
-  debug(message: string, ...args: any[]): void {
+  debug(message: string, ...args: unknown[]): void {
     if (this.level >= LogLevel.DEBUG) {
       this.log('DEBUG', message, ...args);
     }
