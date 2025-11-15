@@ -125,7 +125,8 @@ export class SuggestionViewer {
       tags: true,
       label: ' Actions ',
       content: `{center}{bold}
-[A] Accept  [R] Reject  [M] Modify  [S] Skip  [C] Cancel All  [ESC] Exit
+[A] Accept  [R] Reject  [M] Modify  [S] Skip  [←/P] Previous  [→/N] Next
+[C] Cancel All  [ESC] Exit
 {/bold}{/center}`,
     });
 
@@ -147,12 +148,16 @@ export class SuggestionViewer {
     this.container.key(['s', 'S'], () => this.handleDecision('skip'));
     this.container.key(['c', 'C'], () => this.handleCancel());
     this.container.key(['escape', 'q'], () => this.hide());
-    
-    // Navigation keys
+
+    // Navigation keys for scrolling within boxes
     this.container.key(['up', 'down'], () => {
       // Allow scrolling in suggestion and rationale boxes
       this.suggestionBox.focus();
     });
+
+    // Navigation to manually move between suggestions
+    this.container.key(['left', 'p'], () => this.navigateToPrevious());
+    this.container.key(['right', 'n'], () => this.navigateToNext());
   }
 
   async show(batchId: string, onComplete?: (batchId: string, summary: Record<string, unknown>) => void): Promise<void> {
@@ -283,7 +288,7 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
     if (!this.currentBatchId) return;
 
     const result = await this.suggestionManager.processDecision(this.currentBatchId, decision);
-    
+
     if (!result.success) {
       this.showError(`Failed to process decision: ${result.error}`);
       return;
@@ -292,7 +297,12 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
     if (result.completed) {
       await this.handleBatchComplete();
     } else {
+      // Automatically advance to the next suggestion and load its details
       await this.updateDisplay();
+
+      // Ensure the container is focused for keyboard input
+      this.container.focus();
+      this.screen.render();
     }
   }
 
@@ -409,6 +419,38 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
     if (confirmed) {
       await this.suggestionManager.cancelBatch(this.currentBatchId);
       await this.handleBatchComplete();
+    }
+  }
+
+  private async navigateToNext(): Promise<void> {
+    if (!this.currentBatchId) return;
+
+    const batch = this.suggestionManager.getBatch(this.currentBatchId);
+    if (!batch) return;
+
+    // Check if there's a next suggestion
+    if (batch.currentIndex < batch.suggestions.length - 1) {
+      // Skip to next suggestion without applying changes
+      this.suggestionManager.skipToSuggestion(this.currentBatchId, batch.currentIndex + 1);
+      await this.updateDisplay();
+      this.container.focus();
+      this.screen.render();
+    }
+  }
+
+  private async navigateToPrevious(): Promise<void> {
+    if (!this.currentBatchId) return;
+
+    const batch = this.suggestionManager.getBatch(this.currentBatchId);
+    if (!batch) return;
+
+    // Check if there's a previous suggestion
+    if (batch.currentIndex > 0) {
+      // Go back to previous suggestion
+      this.suggestionManager.skipToSuggestion(this.currentBatchId, batch.currentIndex - 1);
+      await this.updateDisplay();
+      this.container.focus();
+      this.screen.render();
     }
   }
 
