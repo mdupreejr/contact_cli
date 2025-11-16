@@ -198,7 +198,8 @@ export class ToolExecutor {
     contactData: ContactData,
     suggestions: ToolSuggestion[]
   ): ContactData {
-    const updatedData = { ...contactData } as Record<string, unknown>;
+    // Deep clone to avoid mutating original contact data while applying suggestions.
+    const updatedData = JSON.parse(JSON.stringify(contactData)) as Record<string, unknown>;
 
     for (const suggestion of suggestions) {
       this.applySuggestion(updatedData, suggestion);
