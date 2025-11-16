@@ -699,104 +699,118 @@ export class SyncQueueViewer extends BaseListViewer<SyncQueueItem> {
    * Approve selected items
    */
   private approveSelected(): void {
-    const itemIds = this.selectedItems.size > 0
+    const selectedContexts = this.selectedItems.size > 0
       ? Array.from(this.selectedItems)
-          .map(i => this.items[i])
-          .filter((item): item is SyncQueueItem => item !== undefined)
-          .map(item => item.id)
-      : this.selectedIndex >= 0 && this.selectedIndex < this.items.length
-          ? [this.items[this.selectedIndex].id]
-          : [];
+          .map(index => ({ index, item: this.items[index] }))
+      : [{ index: this.selectedIndex, item: this.items[this.selectedIndex] }];
 
-    if (itemIds.length === 0) {
+    const validContexts = selectedContexts
+      .filter((context): context is { index: number; item: SyncQueueItem } =>
+        context.index >= 0 &&
+        context.index < this.items.length &&
+        Boolean(context.item)
+      );
+
+    const queueItemIds = validContexts.map(context => context.item.id);
+
+    if (queueItemIds.length === 0) {
       logger.warn('No items selected to approve');
       return;
     }
 
-    // Remember where we were
-    const targetIndex = this.selectedIndex;
+    const processedIndices = validContexts.map(context => context.index);
 
-    this.syncQueue.approveMultiple(itemIds);
+    this.syncQueue.approveMultiple(queueItemIds);
     this.selectedItems.clear();
 
     // Refresh items from database
     this.items = this.getItems();
 
-    logger.info(`After approve: have ${this.items.length} items, was at ${targetIndex}`);
-
     const listItems = this.items.map((item, index) => this.renderItem(item, index));
     this.list.setItems(listItems);
 
-    // Ensure target index is valid
-    if (targetIndex >= this.items.length) {
-      this.selectedIndex = Math.max(0, this.items.length - 1);
-    } else {
-      this.selectedIndex = targetIndex;
-    }
-
-    logger.info(`Selecting index ${this.selectedIndex}`);
-
-    // Force update of selection and detail view
-    (this.list as any).selected = this.selectedIndex;
-    this.list.select(this.selectedIndex);
+    this.updateSelectionAfterAction(queueItemIds, processedIndices);
     this.updateDetailView();
     this.updateHeader();
     this.updateStatusBar();
     this.screen.render();
 
-    logger.info(`Approved ${itemIds.length} items, now showing index ${this.selectedIndex}/${this.items.length}`);
+    logger.info(`Approved ${queueItemIds.length} items, now showing index ${this.selectedIndex}/${this.items.length}`);
   }
 
   /**
    * Reject selected items
    */
   private rejectSelected(): void {
-    const itemIds = this.selectedItems.size > 0
+    const selectedContexts = this.selectedItems.size > 0
       ? Array.from(this.selectedItems)
-          .map(i => this.items[i])
-          .filter((item): item is SyncQueueItem => item !== undefined)
-          .map(item => item.id)
-      : this.selectedIndex >= 0 && this.selectedIndex < this.items.length
-          ? [this.items[this.selectedIndex].id]
-          : [];
+          .map(index => ({ index, item: this.items[index] }))
+      : [{ index: this.selectedIndex, item: this.items[this.selectedIndex] }];
 
-    if (itemIds.length === 0) {
+    const validContexts = selectedContexts
+      .filter((context): context is { index: number; item: SyncQueueItem } =>
+        context.index >= 0 &&
+        context.index < this.items.length &&
+        Boolean(context.item)
+      );
+
+    const queueItemIds = validContexts.map(context => context.item.id);
+
+    if (queueItemIds.length === 0) {
       logger.warn('No items selected to reject');
       return;
     }
 
-    // Remember where we were
-    const targetIndex = this.selectedIndex;
+    const processedIndices = validContexts.map(context => context.index);
 
-    this.syncQueue.rejectMultiple(itemIds);
+    this.syncQueue.rejectMultiple(queueItemIds);
     this.selectedItems.clear();
 
     // Refresh items from database
     this.items = this.getItems();
 
-    logger.info(`After reject: have ${this.items.length} items, was at ${targetIndex}`);
-
     const listItems = this.items.map((item, index) => this.renderItem(item, index));
     this.list.setItems(listItems);
 
-    // Ensure target index is valid
-    if (targetIndex >= this.items.length) {
-      this.selectedIndex = Math.max(0, this.items.length - 1);
-    } else {
-      this.selectedIndex = targetIndex;
-    }
-
-    logger.info(`Selecting index ${this.selectedIndex}`);
-
-    // Force update of selection and detail view
-    (this.list as any).selected = this.selectedIndex;
-    this.list.select(this.selectedIndex);
+    this.updateSelectionAfterAction(queueItemIds, processedIndices);
     this.updateDetailView();
     this.updateHeader();
     this.updateStatusBar();
     this.screen.render();
 
-    logger.info(`Rejected ${itemIds.length} items, now showing index ${this.selectedIndex}/${this.items.length}`);
+    logger.info(`Rejected ${queueItemIds.length} items, now showing index ${this.selectedIndex}/${this.items.length}`);
+  }
+
+  /**
+   * Update list selection after an approve/reject action.
+   * Moves focus to the next logical item and keeps detail view in sync.
+   */
+  private updateSelectionAfterAction(processedIds: number[], originalIndices: number[]): void {
+    if (this.items.length === 0) {
+      this.selectedIndex = 0;
+      this.detailBox?.setContent('No items to display');
+      return;
+    }
+
+    const remainingIndices = processedIds
+      .map(id => this.items.findIndex(item => item.id === id))
+      .filter(index => index !== -1);
+
+    let nextIndex: number;
+
+    if (remainingIndices.length > 0) {
+      const nextCandidate = Math.max(...remainingIndices) + 1;
+      nextIndex = Math.min(nextCandidate, this.items.length - 1);
+    } else {
+      const firstOriginal = Math.min(...originalIndices);
+      nextIndex = Math.min(firstOriginal, this.items.length - 1);
+    }
+
+    nextIndex = Math.max(0, nextIndex);
+
+    this.selectedIndex = nextIndex;
+    (this.list as any).selected = this.selectedIndex;
+    this.list.select(this.selectedIndex);
   }
 
   /**
