@@ -699,26 +699,28 @@ export class SyncQueueViewer extends BaseListViewer<SyncQueueItem> {
    * Approve selected items
    */
   private approveSelected(): void {
-    const selectedContexts = this.selectedItems.size > 0
+    const processedContexts = this.selectedItems.size > 0
       ? Array.from(this.selectedItems)
           .map(index => ({ index, item: this.items[index] }))
       : [{ index: this.selectedIndex, item: this.items[this.selectedIndex] }];
 
-    const validContexts = selectedContexts
-      .filter((context): context is { index: number; item: SyncQueueItem } =>
+    const validContexts = processedContexts.filter(
+      (context): context is { index: number; item: SyncQueueItem } =>
         context.index >= 0 &&
         context.index < this.items.length &&
         Boolean(context.item)
-      );
+    );
 
-    const queueItemIds = validContexts.map(context => context.item.id);
-
-    if (queueItemIds.length === 0) {
+    if (validContexts.length === 0) {
       logger.warn('No items selected to approve');
       return;
     }
 
+    const queueItemIds = validContexts.map(context => context.item.id);
     const processedIndices = validContexts.map(context => context.index);
+    const fallbackIndex = processedIndices.length > 0
+      ? Math.min(...processedIndices)
+      : this.selectedIndex;
 
     this.syncQueue.approveMultiple(queueItemIds);
     this.selectedItems.clear();
@@ -729,7 +731,7 @@ export class SyncQueueViewer extends BaseListViewer<SyncQueueItem> {
     const listItems = this.items.map((item, index) => this.renderItem(item, index));
     this.list.setItems(listItems);
 
-    this.updateSelectionAfterAction(queueItemIds, processedIndices);
+    this.advanceSelection(queueItemIds, fallbackIndex);
     this.updateDetailView();
     this.updateHeader();
     this.updateStatusBar();
@@ -742,26 +744,28 @@ export class SyncQueueViewer extends BaseListViewer<SyncQueueItem> {
    * Reject selected items
    */
   private rejectSelected(): void {
-    const selectedContexts = this.selectedItems.size > 0
+    const processedContexts = this.selectedItems.size > 0
       ? Array.from(this.selectedItems)
           .map(index => ({ index, item: this.items[index] }))
       : [{ index: this.selectedIndex, item: this.items[this.selectedIndex] }];
 
-    const validContexts = selectedContexts
-      .filter((context): context is { index: number; item: SyncQueueItem } =>
+    const validContexts = processedContexts.filter(
+      (context): context is { index: number; item: SyncQueueItem } =>
         context.index >= 0 &&
         context.index < this.items.length &&
         Boolean(context.item)
-      );
+    );
 
-    const queueItemIds = validContexts.map(context => context.item.id);
-
-    if (queueItemIds.length === 0) {
+    if (validContexts.length === 0) {
       logger.warn('No items selected to reject');
       return;
     }
 
+    const queueItemIds = validContexts.map(context => context.item.id);
     const processedIndices = validContexts.map(context => context.index);
+    const fallbackIndex = processedIndices.length > 0
+      ? Math.min(...processedIndices)
+      : this.selectedIndex;
 
     this.syncQueue.rejectMultiple(queueItemIds);
     this.selectedItems.clear();
@@ -772,7 +776,7 @@ export class SyncQueueViewer extends BaseListViewer<SyncQueueItem> {
     const listItems = this.items.map((item, index) => this.renderItem(item, index));
     this.list.setItems(listItems);
 
-    this.updateSelectionAfterAction(queueItemIds, processedIndices);
+    this.advanceSelection(queueItemIds, fallbackIndex);
     this.updateDetailView();
     this.updateHeader();
     this.updateStatusBar();
@@ -785,30 +789,42 @@ export class SyncQueueViewer extends BaseListViewer<SyncQueueItem> {
    * Update list selection after an approve/reject action.
    * Moves focus to the next logical item and keeps detail view in sync.
    */
-  private updateSelectionAfterAction(processedIds: number[], originalIndices: number[]): void {
+  private advanceSelection(processedIds: number[], fallbackIndex: number): void {
     if (this.items.length === 0) {
       this.selectedIndex = 0;
-      this.detailBox?.setContent('No items to display');
+      if (this.detailBox) {
+        this.detailBox.setContent('No items to display');
+      }
       return;
     }
 
-    const remainingIndices = processedIds
-      .map(id => this.items.findIndex(item => item.id === id))
-      .filter(index => index !== -1);
+    const processedSet = new Set(processedIds);
+    const maxIndex = this.items.length - 1;
+    const normalizedFallback = Math.max(0, Math.min(fallbackIndex, maxIndex));
 
-    let nextIndex: number;
+    let nextIndex = normalizedFallback;
 
-    if (remainingIndices.length > 0) {
-      const nextCandidate = Math.max(...remainingIndices) + 1;
-      nextIndex = Math.min(nextCandidate, this.items.length - 1);
-    } else {
-      const firstOriginal = Math.min(...originalIndices);
-      nextIndex = Math.min(firstOriginal, this.items.length - 1);
+    for (let i = normalizedFallback; i <= maxIndex; i++) {
+      if (!processedSet.has(this.items[i].id)) {
+        nextIndex = i;
+        break;
+      }
     }
 
-    nextIndex = Math.max(0, nextIndex);
+    if (processedSet.has(this.items[nextIndex]?.id)) {
+      for (let i = 0; i < normalizedFallback; i++) {
+        if (!processedSet.has(this.items[i].id)) {
+          nextIndex = i;
+          break;
+        }
+      }
+    }
 
-    this.selectedIndex = nextIndex;
+    if (processedSet.has(this.items[nextIndex]?.id)) {
+      nextIndex = normalizedFallback;
+    }
+
+    this.selectedIndex = Math.max(0, Math.min(nextIndex, maxIndex));
     (this.list as any).selected = this.selectedIndex;
     this.list.select(this.selectedIndex);
   }

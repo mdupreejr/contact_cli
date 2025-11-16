@@ -253,7 +253,9 @@ export class ListNavigator {
   destroy(): void {
     // Remove all registered key handlers
     this.keyHandlers.forEach(({ keys, handler }) => {
-      this.element.unkey(keys, handler);
+      keys.forEach(key => {
+        this.element.unkey(key, handler);
+      });
     });
     this.keyHandlers = [];
   }

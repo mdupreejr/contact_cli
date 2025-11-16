@@ -15,11 +15,10 @@ export class SuggestionViewer {
   private actionBox: blessed.Widgets.BoxElement;
   private isVisible = false;
   private currentBatchId?: string;
-  private onComplete?: (batchId: string, summary: any) => void;
+  private onComplete?: (batchId: string, summary: Record<string, unknown>) => void;
   private listNavigator?: ListNavigator;
   private suggestions: ToolSuggestion[] = [];
   private selectedIndex = 0;
-  private onComplete?: (batchId: string, summary: Record<string, unknown>) => void;
 
   constructor(screen: blessed.Widgets.Screen, suggestionManager: SuggestionManager) {
     this.screen = screen;
@@ -234,7 +233,7 @@ export class SuggestionViewer {
     this.selectedIndex = batch.currentIndex;
 
     this.container.show();
-    this.updateDisplay();
+    await this.updateDisplay();
 
     // Set up list navigator for consistent navigation
     this.listNavigator = new ListNavigator({
@@ -271,7 +270,7 @@ export class SuggestionViewer {
     return this.isVisible;
   }
 
-  private updateDisplay(): void {
+  private async updateDisplay(): Promise<void> {
     if (!this.currentBatchId) return;
 
     const batch = this.suggestionManager.getBatch(this.currentBatchId);
@@ -292,7 +291,6 @@ export class SuggestionViewer {
     this.titleBox.setContent(`{center}{bold}${batch.toolName} - Contact ${batch.contactId}{/bold}{/center}`);
 
     // Update progress
-    const progress = this.suggestionManager.getBatchProgress(this.currentBatchId);
     if (progress) {
       const completed = batch.results.filter(r => r.decision !== 'pending').length;
       const approved = batch.results.filter(r => r.decision === 'approved').length;
@@ -352,9 +350,9 @@ export class SuggestionViewer {
     }
 
     const suggestion = this.suggestions[this.selectedIndex];
+    this.displaySuggestion(suggestion);
+  }
 
-    // Update detail box
-    const content = `{bold}{yellow-fg}Field:{/yellow-fg}{/bold} ${suggestion.field}
   /**
    * Escape blessed.js special characters to prevent rendering issues.
    * Uses blessed.js official escape() function to convert tags like {bold}
@@ -447,7 +445,7 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
       }
 
       // Update progress display
-      this.updateDisplay();
+      await this.updateDisplay();
 
       // Ensure the list is focused for keyboard input
       this.suggestionList.focus();
@@ -544,7 +542,6 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
     inputBox.on('submit', async (value: string) => {
       this.screen.remove(modifyDialog);
 
-      let modifiedValue: any = value;
       let modifiedValue: unknown = value;
 
       // Try to parse as JSON if it looks like JSON
@@ -585,7 +582,7 @@ ${Object.entries(rationale.additionalInfo).map(([key, value]) => `• ${key}: ${
           this.showSuggestionDetail();
         }
 
-        this.updateDisplay();
+        await this.updateDisplay();
         this.suggestionList.focus();
         this.screen.render();
       }
